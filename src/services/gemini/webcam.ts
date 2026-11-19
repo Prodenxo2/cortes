@@ -13,32 +13,42 @@ const webcamSchema: Schema = {
       enum: ["overlay", "fullscreen_cam", "none"],
       description: "overlay = câmera numa caixa sobre o jogo; fullscreen_cam = câmera ocupa a tela; none = sem câmera",
     },
+    is_real_camera: {
+      type: Type.BOOLEAN,
+      description: "true SÓ se a caixa mostra uma pessoa REAL filmada por câmera (não gráfico de jogo).",
+    },
     box_2d: {
       type: Type.ARRAY,
       items: { type: Type.INTEGER },
       description: "[ymin, xmin, ymax, xmax] normalizado 0-1000 da imagem da câmera. Vazio se layout = none.",
     },
+    seen_in_frames: { type: Type.INTEGER, description: "Em quantas das imagens a mesma caixa de câmera aparece." },
     confidence: { type: Type.NUMBER, description: "0 a 1" },
+    reason: { type: Type.STRING, description: "1 frase curta justificando." },
   },
-  required: ["layout", "box_2d", "confidence"],
-  propertyOrdering: ["layout", "box_2d", "confidence"],
+  required: ["layout", "is_real_camera", "box_2d", "seen_in_frames", "confidence", "reason"],
+  propertyOrdering: ["layout", "is_real_camera", "box_2d", "seen_in_frames", "confidence", "reason"],
 };
 
 function webcamPrompt(n: number): string {
   return [
     `Estas são ${n} imagens do MESMO trecho de uma live de games (frames 16:9).`,
-    `Muitos streamers mostram a própria webcam (facecam) numa caixa sobre a gameplay; cada um coloca num lugar e tamanho diferente.`,
+    `Muitos streamers mostram a própria webcam (facecam) numa caixa SOBREPOSTA ao jogo; cada um coloca num lugar e tamanho diferente.`,
     ``,
-    `Encontre a caixa da webcam que mostra o streamer (pessoa real, quarto/cenário real).`,
-    `- box_2d = [ymin, xmin, ymax, xmax] normalizado de 0 a 1000, cobrindo a IMAGEM DA CÂMERA inteira (o retângulo do vídeo da câmera, não só o rosto).`,
-    `- Não inclua molduras decorativas, nome do canal, chat, alertas, logos ou barras de doação.`,
-    `- Se a posição muda entre as imagens, use a que aparece na maioria.`,
-    `- Pessoas DENTRO do jogo (personagens, NPCs, cutscenes) NÃO são webcam.`,
+    `Encontre a caixa da webcam do streamer, se existir.`,
+    `Como reconhecer a webcam de verdade:`,
+    `- é um retângulo SOBREPOSTO com borda nítida, na mesma posição em todas as imagens (o jogo muda em volta, a caixa não sai do lugar);`,
+    `- mostra uma pessoa REAL filmada por câmera: quarto, parede, fone, microfone, cadeira, luz de LED, imagem com granulado de câmera;`,
+    `- normalmente ocupa entre 5% e 35% da tela, quase sempre perto de um canto ou borda.`,
     ``,
-    `layout:`,
-    `- "overlay": existe uma caixa de câmera sobre o conteúdo (caso mais comum).`,
-    `- "fullscreen_cam": a câmera ocupa a tela toda ou quase toda (cena de conversa, sem jogo). Retorne a caixa da câmera.`,
-    `- "none": não há câmera do streamer. Retorne box_2d vazio.`,
+    `NÃO é webcam (cuidado — jogos como GTA são fotorrealistas):`,
+    `- personagens, NPCs, rostos em cutscene, retratos ou espelhos DENTRO do jogo;`,
+    `- HUD, minimapa, chat, alertas, logos, molduras decorativas vazias.`,
+    `Se a câmera não aparecer nessas imagens (cutscene em tela cheia, câmera desligada, só gameplay), responda layout "none".`,
+    ``,
+    `box_2d = [ymin, xmin, ymax, xmax] de 0 a 1000 cobrindo a IMAGEM da câmera inteira (o retângulo do vídeo, não só o rosto, sem a moldura).`,
+    `layout "fullscreen_cam" = a câmera do streamer ocupa a tela toda ou quase toda (cena de conversa, sem jogo).`,
+    `Na dúvida, prefira "none": um recorte errado estraga o vídeo; sem câmera ele só fica com o jogo inteiro.`,
   ].join("\n");
 }
 
@@ -67,16 +77,39 @@ export async function detectWebcamWithGemini(framePaths: string[]): Promise<Webc
     "generateContent(webcam)",
   );
 
-  const data = parseJsonResponse<{ layout?: string; box_2d?: number[]; confidence?: number }>(response.text, "webcam");
+  const data = parseJsonResponse<{
+    layout?: string;
+    is_real_camera?: boolean;
+    box_2d?: number[];
+    seen_in_frames?: number;
+    confidence?: number;
+    reason?: string;
+  }>(response.text, "webcam");
   const confidence = Math.min(1, Math.max(0, Number(data.confidence) || 0));
   const rect = boxToRect(data.box_2d);
+  const why = data.reason ?? "";
 
-  if (data.layout === "none" || !rect) return { kind: "none", confidence };
+  if (data.layout === "none" || !rect || data.is_real_camera === false) return { kind: "none", confidence, reason: why };
 
   const area = rect.w * rect.h;
-  if (data.layout === "fullscreen_cam" || area > 0.6) return { kind: "fullscreen_cam", rect, confidence };
-  if (area < 0.01 || confidence < 0.35) return { kind: "none", confidence };
+  if (data.layout === "fullscreen_cam" || area > 0.6) {
+    return confidence >= 0.6 ? { kind: "fullscreen_cam", rect, confidence, reason: why } : { kind: "none", confidence, reason: why };
+  }
+
+  // Validações de sanidade: um recorte errado é pior do que nenhum recorte.
+  const aspect = (rect.w * 16) / (rect.h * 9); // proporção real em pixels num frame 16:9
+  const seen = Number(data.seen_in_frames) || 0;
+  if (
+    confidence < 0.6 ||
+    area < 0.015 ||
+    area > 0.45 ||
+    aspect < 0.5 ||
+    aspect > 2.6 ||
+    (framePaths.length >= 3 && seen < 2)
+  ) {
+    return { kind: "none", confidence, reason: `rejeitado na validação (${why})` };
+  }
 
   // Tira ~2% de cada lado: bordas/molduras do overlay quase sempre ficam na beirada da caixa.
-  return { kind: "overlay", rect: insetRect(rect, 0.02), confidence };
+  return { kind: "overlay", rect: insetRect(rect, 0.02), confidence, reason: why };
 }

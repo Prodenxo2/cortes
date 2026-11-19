@@ -68,10 +68,11 @@ export interface ClipTextResult {
  * - fullscreen_cam: a câmera é a tela toda/maior parte (cena "just chatting");
  * - none: só gameplay, sem câmera.
  */
-export type WebcamDetection =
+export type WebcamDetection = (
   | { kind: "overlay"; rect: CropRect; confidence: number }
   | { kind: "fullscreen_cam"; rect?: CropRect; confidence: number }
-  | { kind: "none"; confidence: number };
+  | { kind: "none"; confidence: number }
+) & { reason?: string };
 
 /**
  * Contrato do "cérebro" do pipeline. A implementação real é o Gemini;

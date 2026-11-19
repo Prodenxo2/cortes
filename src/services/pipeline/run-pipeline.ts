@@ -362,6 +362,9 @@ async function resolveClipLayout(
       ),
     );
     const det = await o.analyzer.detectWebcam(frames);
+    console.log(
+      `[pipeline] ${base}: webcam ${det.kind} (confiança ${det.confidence.toFixed(2)})${det.reason ? ` — ${det.reason}` : ""}`,
+    );
 
     if (det.kind === "overlay") return { layout: withCam(det.rect), webcamMode: "auto" };
     if (det.kind === "fullscreen_cam") {
@@ -370,8 +373,9 @@ async function resolveClipLayout(
     }
     return { layout: { preset: o.noWebcamPreset ?? "blur", gameplay: req.gameplay }, webcamMode: "no-webcam" };
   } catch (err) {
-    console.warn(`[pipeline] ${base}: detecção de webcam falhou, usando posição padrão. ${(err as Error).message}`);
-    return { layout: withCam(DEFAULT_WEBCAM), webcamMode: "default" };
+    // Sem detecção confiável não arriscamos um recorte no lugar errado: vai o jogo inteiro.
+    console.warn(`[pipeline] ${base}: detecção de webcam falhou, usando layout sem câmera. ${(err as Error).message}`);
+    return { layout: { preset: o.noWebcamPreset ?? "blur", gameplay: req.gameplay }, webcamMode: "no-webcam" };
   }
 }
 
