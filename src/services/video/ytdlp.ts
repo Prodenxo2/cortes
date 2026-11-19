@@ -49,6 +49,9 @@ async function baseArgs(): Promise<string[]> {
   // Usamos o próprio Node que está rodando este processo. Sobrescreva com YTDLP_JS_RUNTIMES (ex: "deno").
   const jsRuntime = process.env.YTDLP_JS_RUNTIMES || `node:${process.execPath}`;
   args.push("--js-runtimes", jsRuntime, ...(await cookieArgs()));
+  // Serviço bgutil (PO Token): contorna o bloqueio "não sou um robô" do YouTube em IPs de servidor.
+  const potUrl = process.env.YTDLP_POT_PROVIDER_URL;
+  if (potUrl) args.push("--extractor-args", `youtubepot-bgutilhttp:base_url=${potUrl}`);
   return args;
 }
 

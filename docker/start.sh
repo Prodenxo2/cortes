@@ -18,6 +18,16 @@ echo "[start] sincronizando tabelas do banco (prisma db push)..."
 npx prisma db push --skip-generate
 
 echo "[start] yt-dlp $(yt-dlp --version) | $(ffmpeg -hide_banner -version | head -n1)"
+
+if [ -n "${YTDLP_POT_PROVIDER_URL:-}" ]; then
+  if curl -fsS --max-time 5 "${YTDLP_POT_PROVIDER_URL%/}/ping" >/dev/null 2>&1; then
+    echo "[start] PO Token provider OK em ${YTDLP_POT_PROVIDER_URL}"
+  else
+    echo "[start] AVISO: PO Token provider não respondeu em ${YTDLP_POT_PROVIDER_URL} (o serviço 'pot' está rodando?)" >&2
+  fi
+else
+  echo "[start] AVISO: YTDLP_POT_PROVIDER_URL não definida — o YouTube pode bloquear downloads do servidor." >&2
+fi
 echo "[start] iniciando worker e site na porta ${PORT:-3000}..."
 
 npm run worker &

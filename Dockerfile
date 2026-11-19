@@ -2,20 +2,19 @@
 # (os dois precisam enxergar a mesma pasta /app/storage).
 FROM node:22-bookworm-slim
 
-ARG TARGETARCH
-
 # ffmpeg do Debian já vem com libass, libx264 e libmp3lame.
-# openssl: Prisma | fontconfig/fonts-liberation: fontes para o libass | curl: baixar yt-dlp e fonte
+# openssl: Prisma | fontconfig/fonts-liberation: fontes para o libass | curl: baixar a fonte | python3: yt-dlp
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg ca-certificates curl openssl fontconfig fonts-liberation \
+ && apt-get install -y --no-install-recommends ffmpeg ca-certificates curl openssl fontconfig fonts-liberation python3 python3-venv \
  && rm -rf /var/lib/apt/lists/*
 
-# yt-dlp: binário standalone oficial (já inclui o componente EJS que o YouTube exige)
-RUN set -eux; \
-    case "${TARGETARCH:-amd64}" in arm64) asset=yt-dlp_linux_aarch64 ;; *) asset=yt-dlp_linux ;; esac; \
-    curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${asset}" -o /usr/local/bin/yt-dlp; \
-    chmod +x /usr/local/bin/yt-dlp; \
-    yt-dlp --version
+# yt-dlp via pip (num venv) para poder usar plugins:
+# - yt-dlp[default] já inclui o yt-dlp-ejs (desafios JS do YouTube)
+# - bgutil-ytdlp-pot-provider: busca PO Tokens no serviço "pot" e contorna o "Sign in to confirm you're not a bot"
+RUN python3 -m venv /opt/ytdlp \
+ && /opt/ytdlp/bin/pip install --no-cache-dir -U "yt-dlp[default]" bgutil-ytdlp-pot-provider \
+ && ln -s /opt/ytdlp/bin/yt-dlp /usr/local/bin/yt-dlp \
+ && yt-dlp --version
 
 # Fonte das legendas: Anton (Google Fonts, licença OFL). Se o download falhar, cai na Liberation Sans.
 RUN mkdir -p /usr/local/share/fonts/anton \
