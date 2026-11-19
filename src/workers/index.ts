@@ -12,7 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { GeminiAnalyzer } from "@/services/gemini/analyzer";
 import { runPipeline } from "@/services/pipeline/run-pipeline";
 import type { CropRect, LayoutOptions, LayoutPreset } from "@/services/video/layouts";
-import { claimNextJob, completeJob, failJob, requeueStaleJobs, updateProgress } from "./queue";
+import { claimNextJob, completeJob, failJob, requeueOrphansOnBoot, requeueStaleJobs, updateProgress } from "./queue";
 
 const workerId = `${os.hostname()}-${process.pid}`;
 const cfg = getConfig();
@@ -103,6 +103,8 @@ async function processJob(project: Project) {
 async function main() {
   log(`iniciado (${workerId}), modelo ${cfg.gemini.model}, polling a cada ${cfg.worker.pollMs}ms`);
   let lastStaleCheck = 0;
+  const orphans = await requeueOrphansOnBoot().catch(() => 0);
+  if (orphans) log(`${orphans} job(s) interrompido(s) pelo último deploy voltaram para a fila`);
 
   while (!stopping) {
     if (Date.now() - lastStaleCheck > 60_000) {

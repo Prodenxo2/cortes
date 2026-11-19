@@ -97,6 +97,20 @@ function isPermanentError(msg: string): boolean {
   );
 }
 
+/**
+ * Na subida do container: qualquer job marcado como "em andamento" ficou órfão (o processo anterior
+ * morreu no deploy/restart). Como rodamos UM worker por container, devolvemos todos para a fila.
+ * Se um dia rodar vários workers em paralelo, desligue com WORKER_REQUEUE_ON_BOOT=0.
+ */
+export async function requeueOrphansOnBoot(): Promise<number> {
+  if (process.env.WORKER_REQUEUE_ON_BOOT === "0") return 0;
+  const { count } = await prisma.project.updateMany({
+    where: { status: { in: ACTIVE } },
+    data: { status: "QUEUED", lockedBy: null, lockedAt: null, progress: 0, statusMessage: "Reiniciado após atualização do servidor" },
+  });
+  return count;
+}
+
 /** Jobs presos (worker morreu no meio): sem heartbeat há X minutos voltam para a fila. */
 export async function requeueStaleJobs(staleMinutes: number): Promise<number> {
   const cutoff = new Date(Date.now() - staleMinutes * 60_000);
