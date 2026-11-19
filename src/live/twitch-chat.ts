@@ -9,12 +9,36 @@ export interface ChatMessage {
   user: string;
   text: string;
   at: number;
+  /** Mensagem com bits (cheer). */
+  bits: number;
+}
+
+/** Eventos do chat que NÃO são reação a lance: raid, sub, presente de sub, anúncio... */
+export interface ChatEvent {
+  channel: string;
+  /** msg-id do USERNOTICE (raid, sub, resub, subgift, submysterygift, announcement...) */
+  kind: string;
+  at: number;
 }
 
 /** Interpreta uma linha IRC. Exportado para teste. */
-export function parseIrcLine(line: string): { command: string; channel?: string; user?: string; text?: string } {
+export function parseIrcLine(line: string): {
+  command: string;
+  channel?: string;
+  user?: string;
+  text?: string;
+  tags: Record<string, string>;
+} {
   let rest = line;
-  if (rest.startsWith("@")) rest = rest.slice(rest.indexOf(" ") + 1); // tags (não pedimos, mas por via das dúvidas)
+  const tags: Record<string, string> = {};
+  if (rest.startsWith("@")) {
+    const sp = rest.indexOf(" ");
+    for (const kv of rest.slice(1, sp).split(";")) {
+      const eq = kv.indexOf("=");
+      if (eq > 0) tags[kv.slice(0, eq)] = kv.slice(eq + 1);
+    }
+    rest = rest.slice(sp + 1);
+  }
   let prefix = "";
   if (rest.startsWith(":")) {
     const sp = rest.indexOf(" ");
@@ -25,15 +49,16 @@ export function parseIrcLine(line: string): { command: string; channel?: string;
   const trailing = trailingIdx >= 0 ? rest.slice(trailingIdx + 2) : undefined;
   const head = (trailingIdx >= 0 ? rest.slice(0, trailingIdx) : rest).split(" ");
   const command = head[0];
-  if (command === "PRIVMSG") {
+  if (command === "PRIVMSG" || command === "USERNOTICE") {
     return {
       command,
       channel: head[1]?.replace(/^#/, "").toLowerCase(),
-      user: prefix.split("!")[0]?.toLowerCase(),
+      user: (prefix.split("!")[0] || tags.login || "").toLowerCase(),
       text: trailing ?? "",
+      tags,
     };
   }
-  return { command, text: trailing };
+  return { command, text: trailing, tags };
 }
 
 export class TwitchChat {
@@ -48,6 +73,7 @@ export class TwitchChat {
   constructor(
     private readonly onMessage: (m: ChatMessage) => void,
     private readonly log: (...a: unknown[]) => void = console.log,
+    private readonly onEvent: (e: ChatEvent) => void = () => undefined,
   ) {}
 
   start(): void {
@@ -87,6 +113,8 @@ export class TwitchChat {
     ws.addEventListener("open", () => {
       this.reconnectDelay = 1_000;
       this.lastMessageAt = Date.now();
+      // tags/commands: para ver raids, subs e anúncios (USERNOTICE) e não confundir com lance.
+      this.send("CAP REQ :twitch.tv/tags twitch.tv/commands");
       this.send(`NICK justinfan${Math.floor(10000 + Math.random() * 89999)}`);
       for (const l of this.wanted) this.join(l);
       this.log(`[chat] conectado (${this.wanted.size} canal(is))`);
@@ -103,7 +131,15 @@ export class TwitchChat {
         }
         const msg = parseIrcLine(line);
         if (msg.command === "PRIVMSG" && msg.channel && msg.user) {
-          this.onMessage({ channel: msg.channel, user: msg.user, text: msg.text ?? "", at: Date.now() });
+          this.onMessage({
+            channel: msg.channel,
+            user: msg.user,
+            text: msg.text ?? "",
+            at: Date.now(),
+            bits: Number(msg.tags.bits ?? 0) || 0,
+          });
+        } else if (msg.command === "USERNOTICE" && msg.channel) {
+          this.onEvent({ channel: msg.channel, kind: msg.tags["msg-id"] ?? "", at: Date.now() });
         } else if (msg.command === "RECONNECT") {
           ws.close();
         }

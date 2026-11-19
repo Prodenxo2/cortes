@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock, Loader2, PauseCircle, XCircle } from "lucide-react";
+import { Ban, CheckCircle2, Clock, Loader2, PauseCircle, XCircle } from "lucide-react";
 import { STATUS_LABEL, type JobStatusName } from "@/lib/status";
 
 const STYLE: Record<JobStatusName, string> = {
@@ -9,6 +9,7 @@ const STYLE: Record<JobStatusName, string> = {
   COMPLETED: "bg-emerald-950 text-emerald-300",
   FAILED: "bg-red-950 text-red-300",
   PAUSED: "bg-zinc-800 text-zinc-400",
+  DISCARDED: "bg-zinc-900 text-zinc-500",
 };
 
 export function StatusBadge({ status }: { status: JobStatusName }) {
@@ -21,7 +22,9 @@ export function StatusBadge({ status }: { status: JobStatusName }) {
           ? Clock
           : status === "PAUSED"
             ? PauseCircle
-            : Loader2;
+            : status === "DISCARDED"
+              ? Ban
+              : Loader2;
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${STYLE[status]}`}>
       <Icon className={`h-3.5 w-3.5 ${Icon === Loader2 ? "animate-spin" : ""}`} />

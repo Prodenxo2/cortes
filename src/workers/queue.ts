@@ -98,6 +98,22 @@ function isPermanentError(msg: string): boolean {
   );
 }
 
+/** Reprovado pelo filtro de qualidade: guarda o motivo, não tenta de novo. */
+export async function discardJob(id: string, reason: string): Promise<void> {
+  await prisma.project.update({
+    where: { id },
+    data: {
+      status: "DISCARDED",
+      statusMessage: reason.slice(0, 500),
+      error: null,
+      lockedBy: null,
+      lockedAt: null,
+      cancelRequested: false,
+      finishedAt: new Date(),
+    },
+  });
+}
+
 /** O usuário pediu para pausar (ou cancelou) um job em andamento. */
 export async function pauseJob(id: string): Promise<void> {
   await prisma.project.update({

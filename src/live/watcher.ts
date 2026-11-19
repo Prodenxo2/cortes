@@ -20,6 +20,24 @@ const COOLDOWN_SEC = 150;
 /** Desiste de um pico se o VOD não cobrir o trecho nesse prazo. */
 const PENDING_TTL_MS = 30 * 60_000;
 
+/** Bots comuns da Twitch: mensagens deles não contam como reação. */
+const BOTS = new Set([
+  "nightbot",
+  "streamelements",
+  "streamlabs",
+  "moobot",
+  "fossabot",
+  "wizebot",
+  "soundalerts",
+  "sery_bot",
+  "botrixoficial",
+  "kofistreambot",
+  "pokemoncommunitygame",
+  "commanderroot",
+  "lolrankbot",
+  "creatisbot",
+]);
+
 const log = (...a: unknown[]) => console.log(`[live ${new Date().toLocaleTimeString("pt-BR")}]`, ...a);
 
 interface PendingClip {
@@ -55,7 +73,11 @@ export class LiveWatcher {
   private states = new Map<string, LiveState>();
   private channels = new Map<string, Channel[]>(); // login -> canais (um por usuário)
   private lastClipAt = new Map<string, number>(); // channelId -> ms
-  private chat = new TwitchChat((m) => this.onChat(m.channel, m.user, m.text, m.at), log);
+  private chat = new TwitchChat(
+    (m) => this.onChat(m.channel, m.user, m.text, m.at, m.bits),
+    log,
+    (e) => this.onChatEvent(e.channel, e.kind, e.at),
+  );
   private timers: NodeJS.Timeout[] = [];
 
   async start(): Promise<void> {
@@ -151,12 +173,33 @@ export class LiveWatcher {
     if (st.pending.length === 0) this.states.delete(st.login);
   }
 
-  private onChat(login: string, user: string, text: string, at: number): void {
+  private onChat(login: string, user: string, text: string, at: number, bits: number): void {
     const st = this.states.get(login);
     if (!st || st.ended) return;
+    // Ruído que não é reação a lance: comandos (!sorteio, !discord), bots e cheers de bits.
+    if (text.startsWith("!") || BOTS.has(user) || bits > 0) return;
     st.detector.add(user, text, at);
     const trig = st.detector.tick(at);
     if (trig) void this.onTrigger(st, trig);
+  }
+
+  /** Raid, chuva de sub e anúncio fazem o chat explodir sem lance nenhum: silencia o detector um pouco. */
+  private onChatEvent(login: string, kind: string, at: number): void {
+    const st = this.states.get(login);
+    if (!st || st.ended) return;
+    const quietSec: Record<string, number> = {
+      raid: 120,
+      submysterygift: 60,
+      subgift: 20,
+      announcement: 45,
+      sub: 10,
+      resub: 10,
+      giftpaidupgrade: 10,
+    };
+    const sec = quietSec[kind];
+    if (!sec) return;
+    st.detector.suppress(at + sec * 1000);
+    if (kind === "raid" || kind === "submysterygift") log(`${login}: ${kind} — ignorando o chat por ${sec}s`);
   }
 
   private tickDetectors(): void {
@@ -177,7 +220,8 @@ export class LiveWatcher {
       if (trig.ratio < ratioForSensitivity(ch.sensitivity)) continue;
       if (now - (this.lastClipAt.get(ch.id) ?? 0) < COOLDOWN_SEC * 1000) continue;
       const lastHour = await prisma.project.count({
-        where: { channelId: ch.id, createdAt: { gte: new Date(now - 3600_000) } },
+        // Descartados pelo filtro não contam no limite por hora.
+        where: { channelId: ch.id, createdAt: { gte: new Date(now - 3600_000) }, status: { not: "DISCARDED" } },
       });
       const pendingForCh = st.pending.filter((p) => p.channelId === ch.id).length;
       if (lastHour + pendingForCh >= ch.maxClipsPerHour) {
@@ -254,6 +298,7 @@ export class LiveWatcher {
         section: `${fmt(start)}-${fmt(end)}`,
         triggerReason: p.trigger.reason.slice(0, 255),
         maxAttempts: 4,
+        minViralScore: ch.minScore,
         priority: 1, // cortes da live são curtos e "quentes": passam na frente de VODs longos
       },
       select: { id: true },

@@ -21,7 +21,7 @@ export interface ChannelFormState {
   values?: Record<string, string>;
 }
 
-const FIELDS = ["login", "layout", "duration", "language", "focus", "instructions", "sensitivity", "perHour"];
+const FIELDS = ["login", "layout", "duration", "language", "focus", "instructions", "sensitivity", "perHour", "minScore"];
 
 function parseSettings(values: Record<string, string>) {
   const layout = values.layout.toUpperCase();
@@ -32,6 +32,8 @@ function parseSettings(values: Record<string, string>) {
   if (![1, 2, 3].includes(sensitivity)) return { error: "Sensibilidade inválida." };
   const perHour = Number(values.perHour);
   if (![4, 8, 12, 20].includes(perHour)) return { error: "Limite por hora inválido." };
+  const minScore = Number(values.minScore || 70);
+  if (![50, 60, 70, 80].includes(minScore)) return { error: "Nota mínima inválida." };
   if (values.instructions.length > MAX_INSTRUCTIONS) {
     return { error: `O pedido extra pode ter no máximo ${MAX_INSTRUCTIONS} caracteres.` };
   }
@@ -45,6 +47,7 @@ function parseSettings(values: Record<string, string>) {
       instructions: sanitizeInstructions(values.instructions) || null,
       sensitivity,
       maxClipsPerHour: perHour,
+      minScore,
     },
   };
 }

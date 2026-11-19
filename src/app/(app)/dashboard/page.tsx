@@ -11,10 +11,16 @@ import { AutoRefresh } from "@/components/auto-refresh";
 
 export const metadata: Metadata = { title: "Meus cortes — Cortes" };
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ descartados?: string }>;
+}) {
   const user = await requireUser();
+  const showDiscarded = (await searchParams).descartados === "1";
+  const discardedCount = await prisma.project.count({ where: { userId: user.id, status: "DISCARDED" } });
   const projects = await prisma.project.findMany({
-    where: { userId: user.id },
+    where: { userId: user.id, ...(showDiscarded ? {} : { status: { not: "DISCARDED" } }) },
     orderBy: { createdAt: "desc" },
     take: 50,
     select: {
@@ -41,7 +47,19 @@ export default async function DashboardPage() {
       <NewProjectForm />
 
       <section>
-        <h2 className="mb-4 text-lg font-semibold">Meus projetos</h2>
+        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-lg font-semibold">Meus projetos</h2>
+          {discardedCount > 0 && (
+            <Link
+              href={showDiscarded ? "/dashboard" : "/dashboard?descartados=1"}
+              className="text-sm text-zinc-500 hover:text-zinc-300"
+            >
+              {showDiscarded
+                ? "Esconder descartados"
+                : `${discardedCount} trecho(s) descartado(s) pelo filtro — ver`}
+            </Link>
+          )}
+        </div>
         {projects.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-zinc-800 p-10 text-center text-zinc-500">
             <Film className="mx-auto mb-3 h-8 w-8" />
@@ -75,6 +93,9 @@ export default async function DashboardPage() {
                     )}
                     <p className="line-clamp-2 font-medium group-hover:text-brand">{p.sourceTitle ?? p.sourceUrl}</p>
                     {p.triggerReason && <p className="text-xs text-zinc-500">{p.triggerReason}</p>}
+                    {p.status === "DISCARDED" && p.statusMessage && (
+                      <p className="line-clamp-3 text-xs text-zinc-500">{p.statusMessage}</p>
+                    )}
                     <p className="text-xs text-zinc-500">
                       {LAYOUT_LABEL[p.layoutPreset]}
                       {p._count.clips > 0 && ` · ${p._count.clips} cortes`}

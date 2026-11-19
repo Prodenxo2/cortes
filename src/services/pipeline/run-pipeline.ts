@@ -20,7 +20,7 @@ import { renderClip } from "@/services/video/renderer";
 import { parseFocus, sanitizeInstructions } from "@/lib/focus";
 import { fallbackPostPackage, normalizePostPackage, type PostPackage } from "@/lib/post";
 import { normalizeHighlights } from "./normalize";
-import type { ClipAnalyzer } from "./types";
+import { DiscardedError, type ClipAnalyzer } from "./types";
 
 export interface PipelineOptions {
   jobId: string;
@@ -48,6 +48,10 @@ export interface PipelineOptions {
   instructions?: string;
   /** Aceita VOD ainda sendo gravado (cortes automáticos durante a live). */
   allowLiveVod?: boolean;
+  /** Modo juiz: a IA pode reprovar tudo (cortes automáticos). */
+  strict?: boolean;
+  /** Cortes com viral_score abaixo disso são descartados (sem renderizar). */
+  minViralScore?: number;
   /** Legendas na mesma chamada da curadoria (menos preciso, 1 chamada). */
   singlePass?: boolean;
   /** Mantém tmp/jobs/{jobId} (source.mp4, áudios, .ass) para depuração. */
@@ -143,7 +147,8 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
 
     checkAbort();
     await emit("ANALYZING", 0.3, `Enviando para ${o.analyzer.name}...`);
-    const raw = await o.analyzer.findHighlights({
+    const analysis = await o.analyzer.findHighlights({
+      strict: o.strict,
       audioPath,
       sourceTitle,
       sourceDuration: src.analysisDuration,
@@ -158,14 +163,24 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
     });
 
     // A IA responde em tempos relativos ao áudio analisado; convertemos para tempos do vídeo original.
-    const highlights = normalizeHighlights(raw, {
+    const highlights = normalizeHighlights(analysis.clips, {
       sourceDuration: src.analysisDuration,
       minDuration: o.minDuration,
       maxDuration: o.maxDuration,
       clipCount: o.clipCount,
-    }).map((h) => ({ ...h, start: h.start + src.offset, end: h.end + src.offset }));
+    })
+      .map((h) => ({ ...h, start: h.start + src.offset, end: h.end + src.offset }))
+      .filter((h) => o.minViralScore === undefined || h.viral_score >= o.minViralScore);
     checkAbort();
-    if (highlights.length === 0) throw new Error("A IA não retornou nenhum corte válido para esse vídeo.");
+    if (highlights.length === 0) {
+      const best = Math.max(0, ...analysis.clips.map((c) => Number(c.viral_score) || 0));
+      if (o.strict || o.minViralScore !== undefined) {
+        const why = analysis.verdict || "nenhum momento forte o bastante";
+        const score = analysis.clips.length ? ` (melhor nota ${best}${o.minViralScore ? `, mínimo ${o.minViralScore}` : ""})` : "";
+        throw new DiscardedError(`${why}${score}`);
+      }
+      throw new Error("A IA não retornou nenhum corte válido para esse vídeo.");
+    }
     await emit("ANALYZING", 1, `${highlights.length} cortes encontrados.`);
 
     // Links diretos expiram em algumas horas: renova antes de renderizar.

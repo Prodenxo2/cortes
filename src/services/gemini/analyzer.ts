@@ -5,6 +5,7 @@ import type {
   ClipAnalyzer,
   ClipTextResult,
   FindHighlightsInput,
+  HighlightsResult,
   RawHighlight,
   TranscribeClipInput,
   WebcamDetection,
@@ -25,7 +26,7 @@ export class GeminiAnalyzer implements ClipAnalyzer {
    * Passo 1: sobe o áudio completo pela File API, pede os cortes com Structured Output
    * e apaga o arquivo remoto no final (mesmo se der erro).
    */
-  async findHighlights(input: FindHighlightsInput): Promise<RawHighlight[]> {
+  async findHighlights(input: FindHighlightsInput): Promise<HighlightsResult> {
     const ai = getGenAI();
     const model = getModel();
     const file = await uploadAndWaitActive(input.audioPath, "audio/mpeg", { onStatus: input.onStatus });
@@ -42,6 +43,7 @@ export class GeminiAnalyzer implements ClipAnalyzer {
         includeCaptions: input.includeCaptions,
         focus: input.focus,
         instructions: input.instructions,
+        strict: input.strict,
       });
 
       const response = await withRetry(
@@ -57,8 +59,8 @@ export class GeminiAnalyzer implements ClipAnalyzer {
         "generateContent(highlights)",
       );
 
-      const data = parseJsonResponse<{ clips?: RawHighlight[] }>(response.text, "highlights");
-      return Array.isArray(data.clips) ? data.clips : [];
+      const data = parseJsonResponse<{ clips?: RawHighlight[]; verdict?: string }>(response.text, "highlights");
+      return { clips: Array.isArray(data.clips) ? data.clips : [], verdict: data.verdict?.slice(0, 300) };
     } finally {
       await deleteFileQuietly(file.name);
     }

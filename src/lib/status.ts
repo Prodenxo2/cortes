@@ -7,7 +7,8 @@ export type JobStatusName =
   | "RENDERING"
   | "COMPLETED"
   | "FAILED"
-  | "PAUSED";
+  | "PAUSED"
+  | "DISCARDED";
 
 export const STATUS_LABEL: Record<JobStatusName, string> = {
   QUEUED: "Na fila",
@@ -17,6 +18,7 @@ export const STATUS_LABEL: Record<JobStatusName, string> = {
   COMPLETED: "Concluído",
   FAILED: "Falhou",
   PAUSED: "Pausado",
+  DISCARDED: "Descartado",
 };
 
 export const PIPELINE_STEPS: { status: JobStatusName; label: string }[] = [

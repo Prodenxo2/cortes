@@ -13,6 +13,8 @@ export interface HighlightsPromptInput {
   focus?: string[];
   /** Texto livre do usuário, já sanitizado. */
   instructions?: string;
+  /** Modo juiz para cortes automáticos de live. */
+  strict?: boolean;
 }
 
 export function highlightsPrompt(p: HighlightsPromptInput): string {
@@ -46,6 +48,22 @@ export function highlightsPrompt(p: HighlightsPromptInput): string {
       `- Blocos de 2 a 5 palavras (máx. ~24 caracteres), quebrando nas pausas naturais.`,
       `- start_offset/end_offset em SEGUNDOS (2 casas) relativos ao start_time do corte (o primeiro bloco começa perto de 0).`,
       `- highlight_word: a palavra mais forte do bloco, copiada exatamente como aparece em text.`,
+    );
+  }
+
+  if (p.strict) {
+    lines.push(
+      ``,
+      `MODO JUIZ RIGOROSO — este trecho foi marcado automaticamente porque o chat agitou. Isso NÃO garante que algo bom aconteceu.`,
+      `Aprove um corte SOMENTE se ele se sustenta sozinho e daria vontade de compartilhar. Na dúvida, REPROVE (clips vazio).`,
+      `REPROVE quando o trecho for:`,
+      `- conversa comum, streamer lendo/respondendo chat, explicação, sem payoff claro;`,
+      `- chat reagindo a sub, raid, doação, sorteio, anúncio, propaganda ou enquete, sem nada marcante acontecendo na live;`,
+      `- tela de espera, intervalo, pausa, música/vídeo de terceiros tocando, áudio ruim ou silêncio;`,
+      `- piada interna que só faz sentido com contexto anterior;`,
+      `- reação morna (risadinha, "nossa", "caramba") sem um momento forte de verdade.`,
+      `Calibre o viral_score com honestidade: 50 = mediano, 70 = bom, 85+ = muito forte. Não infle a nota.`,
+      `Explique sua decisão em "verdict" (1 frase).`,
     );
   }
 

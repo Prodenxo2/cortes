@@ -104,7 +104,12 @@ export function highlightsResponseSchema(includeCaptions: boolean, maxClips: num
           propertyOrdering: required,
         },
       },
+      verdict: {
+        type: Type.STRING,
+        description: "1 frase: por que escolheu esses cortes, ou por que não escolheu nenhum.",
+      },
     },
-    required: ["clips"],
+    required: ["clips", "verdict"],
+    propertyOrdering: ["clips", "verdict"],
   };
 }

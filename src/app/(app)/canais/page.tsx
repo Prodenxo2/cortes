@@ -114,7 +114,8 @@ export default async function ChannelsPage() {
                     )}
                   </div>
                   <p className="mt-1 truncate text-xs text-zinc-500">
-                    {focus.length ? focusLabels(focus).join(", ") : "Qualquer momento forte"} · {SENSITIVITY[c.sensitivity]} ·
+                    {focus.length ? focusLabels(focus).join(", ") : "Qualquer momento forte"} · nota ≥ {c.minScore} ·{" "}
+                    {SENSITIVITY[c.sensitivity]} ·
                     até {c.maxClipsPerHour}/h · {LAYOUT_LABEL[c.layoutPreset]} · {c.minClipSeconds}-{c.maxClipSeconds}s
                   </p>
                   <p className="text-xs text-zinc-500">
@@ -160,6 +161,7 @@ export default async function ChannelsPage() {
                       instructions: c.instructions ?? "",
                       sensitivity: String(c.sensitivity),
                       perHour: String(c.maxClipsPerHour),
+                      minScore: String(c.minScore),
                     }}
                   />
                 </div>

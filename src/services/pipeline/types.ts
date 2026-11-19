@@ -22,11 +22,27 @@ export interface FindHighlightsInput {
   language: string;
   /** Pede legendas junto com os cortes (1 chamada só). */
   includeCaptions: boolean;
+  /** Modo juiz (cortes automáticos): pode reprovar o trecho inteiro e devolver zero cortes. */
+  strict?: boolean;
   /** Ids de FOCUS_OPTIONS (risadas, hype...). Vazio = automático. */
   focus: string[];
   /** Pedido livre do usuário sobre quais momentos escolher. */
   instructions: string;
   onStatus?: (msg: string) => void;
+}
+
+export interface HighlightsResult {
+  clips: RawHighlight[];
+  /** Explicação curta da IA (principalmente quando reprova tudo). */
+  verdict?: string;
+}
+
+/** Trecho reprovado pelo filtro (não é erro: não tenta de novo). */
+export class DiscardedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DiscardedError";
+  }
 }
 
 export interface TranscribeClipInput {
@@ -63,7 +79,7 @@ export type WebcamDetection =
  */
 export interface ClipAnalyzer {
   readonly name: string;
-  findHighlights(input: FindHighlightsInput): Promise<RawHighlight[]>;
+  findHighlights(input: FindHighlightsInput): Promise<HighlightsResult>;
   /** Legendas sincronizadas + textos de postagem do clipe. */
   transcribeClip(input: TranscribeClipInput): Promise<ClipTextResult>;
   /** Opcional: localiza a webcam do streamer em frames JPG do mesmo trecho. */

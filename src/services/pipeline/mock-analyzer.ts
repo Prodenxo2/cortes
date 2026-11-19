@@ -4,6 +4,7 @@ import type {
   ClipAnalyzer,
   ClipTextResult,
   FindHighlightsInput,
+  HighlightsResult,
   RawHighlight,
   TranscribeClipInput,
   WebcamDetection,
@@ -22,12 +23,12 @@ export class MockAnalyzer implements ClipAnalyzer {
     if (webcamDetector) this.detectWebcam = webcamDetector;
   }
 
-  async findHighlights(input: FindHighlightsInput): Promise<RawHighlight[]> {
+  async findHighlights(input: FindHighlightsInput): Promise<HighlightsResult> {
     const dur = Math.min(input.maxDuration, Math.max(input.minDuration, (input.minDuration + input.maxDuration) / 2));
     const slots = Math.max(1, Math.min(input.clipCount, Math.floor(input.sourceDuration / dur)));
     const step = input.sourceDuration / slots;
 
-    return Array.from({ length: slots }, (_, i) => {
+    const clips = Array.from({ length: slots }, (_, i) => {
       const start = i * step;
       const end = Math.min(input.sourceDuration, start + dur);
       const clip: RawHighlight = {
@@ -41,6 +42,7 @@ export class MockAnalyzer implements ClipAnalyzer {
       if (input.includeCaptions) clip.captions = fakeCaptions(end - start);
       return clip;
     });
+    return { clips, verdict: "Mock: cortes espalhados pelo vídeo." };
   }
 
   async transcribeClip(input: TranscribeClipInput): Promise<ClipTextResult> {

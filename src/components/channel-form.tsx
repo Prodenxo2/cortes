@@ -17,6 +17,7 @@ export interface ChannelDefaults {
   instructions?: string;
   sensitivity?: string;
   perHour?: string;
+  minScore?: string;
 }
 
 export function ChannelForm({
@@ -68,9 +69,20 @@ export function ChannelForm({
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <label className="block space-y-1.5">
-          <span className="text-xs text-zinc-500">Sensibilidade</span>
+          <span className="text-xs text-zinc-500" title="A IA dá uma nota de 0 a 100 para cada corte; abaixo disso ele é descartado sem renderizar">
+            Filtro de qualidade
+          </span>
+          <select name="minScore" defaultValue={v.minScore || "70"} className={field}>
+            <option value="50">Solto (nota 50+)</option>
+            <option value="60">Médio (nota 60+)</option>
+            <option value="70">Exigente (nota 70+)</option>
+            <option value="80">Só pérolas (nota 80+)</option>
+          </select>
+        </label>
+        <label className="block space-y-1.5">
+          <span className="text-xs text-zinc-500">Sensibilidade do chat</span>
           <select name="sensitivity" defaultValue={v.sensitivity || "2"} className={field}>
             <option value="1">Só os picos enormes</option>
             <option value="2">Equilibrado</option>

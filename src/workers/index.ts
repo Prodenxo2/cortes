@@ -11,10 +11,12 @@ import { parseFocus } from "@/lib/focus";
 import { prisma } from "@/lib/prisma";
 import { GeminiAnalyzer } from "@/services/gemini/analyzer";
 import { runPipeline } from "@/services/pipeline/run-pipeline";
+import { DiscardedError } from "@/services/pipeline/types";
 import type { CropRect, LayoutOptions, LayoutPreset } from "@/services/video/layouts";
 import {
   claimNextJob,
   completeJob,
+  discardJob,
   failJob,
   isCancelRequested,
   pauseJob,
@@ -78,6 +80,8 @@ async function processJob(project: Project) {
       url: project.sourceUrl,
       section: project.section ?? undefined,
       allowLiveVod: Boolean(project.liveSessionId),
+      strict: Boolean(project.channelId),
+      minViralScore: project.minViralScore ?? undefined,
       focus: parseFocus(project.focus),
       instructions: project.instructions ?? undefined,
       layout: layoutFromProject(project),
@@ -114,6 +118,11 @@ async function processJob(project: Project) {
     );
     log(`job ${project.id} concluído: ${result.clips.length} cortes`);
   } catch (err) {
+    if (err instanceof DiscardedError) {
+      await discardJob(project.id, `Descartado pelo filtro: ${err.message}`);
+      log(`job ${project.id} descartado: ${err.message}`);
+      return;
+    }
     if (controller.signal.aborted) {
       await pauseJob(project.id);
       log(`job ${project.id} pausado pelo usuário`);

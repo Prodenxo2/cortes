@@ -19,6 +19,7 @@ enum JobStatus {
   COMPLETED
   FAILED
   PAUSED
+  DISCARDED // reprovado pelo filtro de qualidade (não renderizado)
 }
 
 enum LayoutPreset {
@@ -74,6 +75,8 @@ model Channel {
   instructions    String?      @db.VarChar(320)
   /// 1 = só picos enormes, 2 = equilibrado, 3 = corta mais
   sensitivity     Int          @default(2)
+  /// Nota mínima (viral_score 0-100) para um corte automático ser renderizado
+  minScore        Int          @default(70)
   maxClipsPerHour Int          @default(8)
 
   createdAt DateTime  @default(now())
@@ -135,6 +138,8 @@ model Project {
   triggerReason String?      @db.VarChar(255)
   /// Não processar antes deste horário (retry com espera)
   runAfter      DateTime?
+  /// Cortes abaixo dessa nota são descartados sem renderizar (cortes automáticos)
+  minViralScore   Int?
   /// Maior = sai primeiro da fila (cortes de live = 1, "Processar primeiro" = 10)
   priority        Int     @default(0)
   /// Usuário pediu para pausar um job em andamento (o worker interrompe e marca PAUSED)

@@ -92,6 +92,16 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         </p>
       )}
 
+      {project.status === "DISCARDED" && (
+        <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5 text-sm">
+          <p className="font-medium text-zinc-200">Este trecho foi reprovado pelo filtro de qualidade e não foi renderizado.</p>
+          <p className="mt-1 text-zinc-400">{project.statusMessage}</p>
+          <p className="mt-3 text-xs text-zinc-500">
+            Achou que valia? Ajuste o filtro do canal em Canais, ou crie um projeto manual com esse trecho.
+          </p>
+        </section>
+      )}
+
       {(active || failed) && (
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
           <ol className="mb-5 grid grid-cols-4 gap-2">

@@ -61,6 +61,7 @@ export class ChatSpikeDetector {
   private samples = 0;
   private firstAt: number;
   private lastTriggerAt = -Infinity;
+  private suppressedUntil = 0;
   private pending: ChatTrigger | null = null;
 
   constructor(now: number, opts: DetectorOptions = {}) {
@@ -102,6 +103,14 @@ export class ChatSpikeDetector {
     return t;
   }
 
+  /**
+   * Ignora picos até `until` (ms). Usado em raid, chuva de sub e anúncio: o chat explode,
+   * mas não por causa de um lance da live.
+   */
+  suppress(until: number): void {
+    this.suppressedUntil = Math.max(this.suppressedUntil, until);
+  }
+
   /** Razão atual da janela vs média (para exibir/debug). */
   get baseline(): number {
     return this.mean;
@@ -133,6 +142,7 @@ export class ChatSpikeDetector {
     let trigger: ChatTrigger | null = null;
     if (
       warm &&
+      windowEnd - this.o.windowBuckets * this.o.bucketMs >= this.suppressedUntil &&
       windowEnd - this.lastTriggerAt >= this.o.cooldownSec * 1000 &&
       total >= this.o.minMessages &&
       users >= this.o.minUsers &&
