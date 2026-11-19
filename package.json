@@ -1,0 +1,42 @@
+{
+  "name": "cortes",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.9"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "worker": "tsx src/workers/index.ts",
+    "test:pipeline": "tsx scripts/test-pipeline.ts",
+    "preview:layout": "tsx scripts/preview-layout.ts",
+    "check:deps": "powershell -NoProfile -ExecutionPolicy Bypass -File ./check-deps.ps1",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@google/genai": "^1.20.0",
+    "@prisma/client": "^6.16.0",
+    "dotenv": "^16.4.5",
+    "lucide-react": "latest",
+    "next": "^16.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "prisma": "^6.16.0",
+    "tailwindcss": "^4.1.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,5 @@
+# Scripts shell precisam de LF, senão quebram no Linux do servidor ("bad interpreter").
+*.sh text eol=lf
+Dockerfile text eol=lf
+# Script do Windows fica com CRLF.
+*.ps1 text eol=crlf
