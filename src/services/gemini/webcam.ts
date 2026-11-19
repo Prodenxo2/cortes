@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import { createPartFromBase64, createUserContent, Type, type Schema } from "@google/genai";
 import type { WebcamDetection } from "@/services/pipeline/types";
 import { insetRect, type CropRect } from "@/services/video/layouts";
-import { getGenAI, getModel, parseJsonResponse, withRetry } from "./client";
+import { generateWithFallback, getGenAI, parseJsonResponse } from "./client";
 
 const webcamSchema: Schema = {
   type: Type.OBJECT,
@@ -67,14 +67,12 @@ export async function detectWebcamWithGemini(framePaths: string[]): Promise<Webc
     framePaths.map(async (p) => createPartFromBase64((await fs.readFile(p)).toString("base64"), "image/jpeg")),
   );
 
-  const response = await withRetry(
-    () =>
-      ai.models.generateContent({
-        model: getModel(),
-        contents: createUserContent([...images, webcamPrompt(framePaths.length)]),
-        config: { responseMimeType: "application/json", responseSchema: webcamSchema },
-      }),
-    "generateContent(webcam)",
+  const response = await generateWithFallback("generateContent(webcam)", (m) =>
+    ai.models.generateContent({
+      model: m,
+      contents: createUserContent([...images, webcamPrompt(framePaths.length)]),
+      config: { responseMimeType: "application/json", responseSchema: webcamSchema },
+    }),
   );
 
   const data = parseJsonResponse<{

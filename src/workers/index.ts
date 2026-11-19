@@ -10,12 +10,14 @@ import { getConfig } from "@/lib/config";
 import { parseFocus } from "@/lib/focus";
 import { prisma } from "@/lib/prisma";
 import { GeminiAnalyzer } from "@/services/gemini/analyzer";
+import { QuotaExceededError } from "@/services/gemini/client";
 import { runPipeline } from "@/services/pipeline/run-pipeline";
 import { DiscardedError } from "@/services/pipeline/types";
 import type { CropRect, LayoutOptions, LayoutPreset } from "@/services/video/layouts";
 import {
   claimNextJob,
   completeJob,
+  deferForQuota,
   discardJob,
   failJob,
   isCancelRequested,
@@ -118,6 +120,12 @@ async function processJob(project: Project) {
     );
     log(`job ${project.id} concluído: ${result.clips.length} cortes`);
   } catch (err) {
+    if (err instanceof QuotaExceededError) {
+      // +2 min de folga depois do horário que o Google informou
+      await deferForQuota(project, new Date(err.retryAt.getTime() + 120_000), err.message);
+      log(`job ${project.id} reagendado: ${err.message}`);
+      return;
+    }
     if (err instanceof DiscardedError) {
       await discardJob(project.id, `Descartado pelo filtro: ${err.message}`);
       log(`job ${project.id} descartado: ${err.message}`);

@@ -98,6 +98,23 @@ function isPermanentError(msg: string): boolean {
   );
 }
 
+/** Cota do Gemini esgotada: volta para a fila para depois, sem gastar tentativa. */
+export async function deferForQuota(project: Project, retryAt: Date, message: string): Promise<void> {
+  await prisma.project.update({
+    where: { id: project.id },
+    data: {
+      status: "QUEUED",
+      runAfter: retryAt,
+      attempts: Math.max(0, project.attempts - 1),
+      progress: 0,
+      statusMessage: message.slice(0, 500),
+      error: null,
+      lockedBy: null,
+      lockedAt: null,
+    },
+  });
+}
+
 /** Reprovado pelo filtro de qualidade: guarda o motivo, não tenta de novo. */
 export async function discardJob(id: string, reason: string): Promise<void> {
   await prisma.project.update({

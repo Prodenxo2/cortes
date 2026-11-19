@@ -211,8 +211,28 @@ export class LiveWatcher {
     }
   }
 
+  /** Se a cota do Gemini acabou, não adianta criar mais cortes: eles só iam acumular na fila. */
+  private quotaPausedUntil = 0;
+  private async geminiQuotaExhausted(): Promise<boolean> {
+    if (Date.now() < this.quotaPausedUntil) return true;
+    const waiting = await prisma.project.findFirst({
+      where: { status: "QUEUED", runAfter: { gt: new Date() }, statusMessage: { startsWith: "Cota diária" } },
+      select: { runAfter: true },
+      orderBy: { runAfter: "asc" },
+    });
+    if (waiting?.runAfter) {
+      this.quotaPausedUntil = waiting.runAfter.getTime();
+      return true;
+    }
+    return false;
+  }
+
   private async onTrigger(st: LiveState, trig: ChatTrigger): Promise<void> {
     log(`⚡ ${st.login}: ${trig.reason} — ${trig.messages} msgs de ${trig.users} pessoas`);
+    if (await this.geminiQuotaExhausted().catch(() => false)) {
+      log(`${st.login}: cota diária do Gemini esgotada — pico ignorado (volta a cortar quando a cota renovar)`);
+      return;
+    }
     await prisma.liveSession.update({ where: { id: st.sessionId }, data: { triggers: { increment: 1 } } }).catch(() => undefined);
 
     const now = Date.now();

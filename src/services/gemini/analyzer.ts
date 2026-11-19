@@ -10,7 +10,7 @@ import type {
   TranscribeClipInput,
   WebcamDetection,
 } from "@/services/pipeline/types";
-import { getGenAI, getModel, parseJsonResponse, withRetry } from "./client";
+import { generateWithFallback, getGenAI, getModel, parseJsonResponse } from "./client";
 import { deleteFileQuietly, uploadAndWaitActive } from "./files";
 import { captionsPrompt, highlightsPrompt } from "./prompts";
 import { detectWebcamWithGemini } from "./webcam";
@@ -46,17 +46,15 @@ export class GeminiAnalyzer implements ClipAnalyzer {
         strict: input.strict,
       });
 
-      const response = await withRetry(
-        () =>
-          ai.models.generateContent({
-            model,
-            contents: createUserContent([createPartFromUri(file.uri, file.mimeType), prompt]),
-            config: {
-              responseMimeType: "application/json",
-              responseSchema: highlightsResponseSchema(input.includeCaptions, input.clipCount),
-            },
-          }),
-        "generateContent(highlights)",
+      const response = await generateWithFallback("generateContent(highlights)", (m) =>
+        ai.models.generateContent({
+          model: m,
+          contents: createUserContent([createPartFromUri(file.uri, file.mimeType), prompt]),
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: highlightsResponseSchema(input.includeCaptions, input.clipCount),
+          },
+        }),
       );
 
       const data = parseJsonResponse<{ clips?: RawHighlight[]; verdict?: string }>(response.text, "highlights");
@@ -72,7 +70,6 @@ export class GeminiAnalyzer implements ClipAnalyzer {
    */
   async transcribeClip(input: TranscribeClipInput): Promise<ClipTextResult> {
     const ai = getGenAI();
-    const model = getModel();
     const stat = await fs.stat(input.audioPath);
     const prompt = captionsPrompt({
       durationSec: input.duration,
@@ -95,17 +92,15 @@ export class GeminiAnalyzer implements ClipAnalyzer {
     }
 
     try {
-      const response = await withRetry(
-        () =>
-          ai.models.generateContent({
-            model,
-            contents: createUserContent([audioPart, prompt]),
-            config: {
-              responseMimeType: "application/json",
-              responseSchema: clipTextResponseSchema,
-            },
-          }),
-        "generateContent(captions)",
+      const response = await generateWithFallback("generateContent(captions)", (m) =>
+        ai.models.generateContent({
+          model: m,
+          contents: createUserContent([audioPart, prompt]),
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: clipTextResponseSchema,
+          },
+        }),
       );
       const data = parseJsonResponse<{ captions?: CaptionBlock[]; post?: unknown }>(response.text, "captions");
       return { captions: Array.isArray(data.captions) ? data.captions : [], post: data.post };

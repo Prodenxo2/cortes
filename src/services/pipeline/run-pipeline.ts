@@ -373,6 +373,7 @@ async function resolveClipLayout(
     }
     return { layout: { preset: o.noWebcamPreset ?? "blur", gameplay: req.gameplay }, webcamMode: "no-webcam" };
   } catch (err) {
+    if ((err as Error)?.name === "QuotaExceededError") throw err; // espera a cota em vez de sair sem câmera
     // Sem detecção confiável não arriscamos um recorte no lugar errado: vai o jogo inteiro.
     console.warn(`[pipeline] ${base}: detecção de webcam falhou, usando layout sem câmera. ${(err as Error).message}`);
     return { layout: { preset: o.noWebcamPreset ?? "blur", gameplay: req.gameplay }, webcamMode: "no-webcam" };
@@ -417,7 +418,7 @@ async function getClipText(
       post: normalizePostPackage(result.post) ?? fallback,
     };
   } catch (err) {
-    if (o.signal?.aborted) throw err;
+    if (o.signal?.aborted || (err as Error)?.name === "QuotaExceededError") throw err;
     console.warn(`[pipeline] ${base}: falha ao gerar legendas/posts, seguindo sem legenda. ${(err as Error).message}`);
     return { captions: [], post: fallback };
   }
