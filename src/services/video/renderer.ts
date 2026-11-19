@@ -10,6 +10,8 @@ export interface RenderClipOptions {
   video: MediaRef;
   /** Faixa de áudio separada (ex: formatos DASH do YouTube), opcional. */
   audio?: MediaRef;
+  /** Início no arquivo de áudio, se diferente do vídeo (trechos baixados separadamente). */
+  audioStart?: number;
   start: number;
   duration: number;
   layout: LayoutOptions;
@@ -41,7 +43,7 @@ export async function renderClip(o: RenderClipOptions): Promise<string> {
 
   const seek = { start: o.start, duration: o.duration };
   const args = [...inputArgs(o.video, seek)];
-  if (o.audio) args.push(...inputArgs(o.audio, seek));
+  if (o.audio) args.push(...inputArgs(o.audio, { start: o.audioStart ?? o.start, duration: o.duration }));
   args.push("-filter_complex", buildFilterGraph(o.layout, assName), "-map", "[vout]");
   if (o.hasAudio) {
     args.push("-map", o.audio ? "1:a:0" : "0:a:0", "-c:a", "aac", "-b:a", "160k", "-ar", "48000");

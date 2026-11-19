@@ -6,6 +6,7 @@ import { formatTimestamp, parseRange } from "@/lib/time";
 import { downloadVideo, fetchMetadata, resolveMedia, type ResolvedMedia } from "@/services/video/ytdlp";
 import { extractAudio, extractFrame, probe } from "@/services/video/ffmpeg";
 import type { MediaRef } from "@/services/video/media";
+import { downloadHlsRange, isHls } from "@/services/video/hls";
 import {
   autoCamHeightRatio,
   captionAnchor,
@@ -102,18 +103,43 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
     if (!src.hasAudio) throw new Error("O vídeo não tem faixa de áudio — não há o que analisar.");
     await emit("ANALYZING", 0, src.remote ? "Baixando só o áudio da live..." : "Extraindo áudio leve (mono 64kbps)...");
     let lastAudioEmit = 0;
-    const audioPath = await extractAudio(src.analysisAudio, path.join(workDir, "audio.mp3"), {
-      start: src.offset,
-      duration: src.hasSection ? src.analysisDuration : undefined,
-      expectedDuration: src.analysisDuration,
-      signal: o.signal,
-      onProgress: (r) => {
-        const now = Date.now();
-        if (now - lastAudioEmit < 1500) return;
-        lastAudioEmit = now;
-        void emit("ANALYZING", r * 0.3, `Baixando áudio... ${Math.round(r * 100)}%`);
-      },
-    });
+    const throttled = (fn: () => void) => {
+      const now = Date.now();
+      if (now - lastAudioEmit < 1500) return;
+      lastAudioEmit = now;
+      fn();
+    };
+
+    // Fonte das legendas por clipe: o áudio já baixado (local) ou a fonte original.
+    let captionAudio: { ref: MediaRef; shift: number } = { ref: src.analysisAudio, shift: 0 };
+    let audioPath: string;
+    if (isHls(src.analysisAudio)) {
+      // HLS (Twitch): baixa só os segmentos do trecho, em paralelo — funciona até em VOD ainda gravando.
+      const seg = await downloadHlsRange(
+        src.analysisAudio,
+        src.offset,
+        src.offset + src.analysisDuration,
+        path.join(workDir, "analysis-audio.ts"),
+        {
+          signal: o.signal,
+          onProgress: (r) => throttled(() => void emit("ANALYZING", r * 0.25, `Baixando áudio... ${Math.round(r * 100)}%`)),
+        },
+      );
+      captionAudio = { ref: seg.file, shift: seg.startTime };
+      audioPath = await extractAudio(seg.file, path.join(workDir, "audio.mp3"), {
+        start: src.offset - seg.startTime,
+        duration: Math.min(src.analysisDuration, seg.available - src.offset),
+        signal: o.signal,
+      });
+    } else {
+      audioPath = await extractAudio(src.analysisAudio, path.join(workDir, "audio.mp3"), {
+        start: src.offset,
+        duration: src.hasSection ? src.analysisDuration : undefined,
+        expectedDuration: src.analysisDuration,
+        signal: o.signal,
+        onProgress: (r) => throttled(() => void emit("ANALYZING", r * 0.3, `Baixando áudio... ${Math.round(r * 100)}%`)),
+      });
+    }
 
     checkAbort();
     await emit("ANALYZING", 0.3, `Enviando para ${o.analyzer.name}...`);
@@ -157,10 +183,37 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
       const label = `Corte ${position}/${highlights.length}`;
       checkAbort();
 
-      await emit("RENDERING", at(0.02), `${label}: localizando webcam...`);
-      const { layout, webcamMode } = await resolveClipLayout(o, h, src, workDir, base);
+      // Vídeo do trecho: em HLS baixa só os segmentos do corte; senão o ffmpeg busca direto.
+      let clipVideo: MediaRef = src.video;
+      let videoShift = 0;
+      let clipAudioSrc: MediaRef | undefined = src.audio;
+      let audioShift = 0;
+      if (isHls(src.video)) {
+        await emit("RENDERING", at(0.01), `${label}: baixando o trecho em alta...`);
+        const seg = await downloadHlsRange(src.video, h.start, h.end, path.join(workDir, `${base}_src.ts`), {
+          signal: o.signal,
+        });
+        clipVideo = seg.file;
+        videoShift = seg.startTime;
+      }
+      if (src.audio && isHls(src.audio)) {
+        const seg = await downloadHlsRange(src.audio, h.start, h.end, path.join(workDir, `${base}_aud.ts`), {
+          signal: o.signal,
+        });
+        clipAudioSrc = seg.file;
+        audioShift = seg.startTime;
+      }
 
-      const { captions, post } = await getClipText(o, h, src, workDir, base, duration, async (msg) =>
+      await emit("RENDERING", at(0.04), `${label}: localizando webcam...`);
+      const { layout, webcamMode } = await resolveClipLayout(
+        o,
+        { video: clipVideo, start: h.start - videoShift, duration },
+        src,
+        workDir,
+        base,
+      );
+
+      const { captions, post } = await getClipText(o, h, captionAudio, src, workDir, base, duration, async (msg) =>
         emit("RENDERING", at(0.05), `${label}: ${msg}`),
       );
 
@@ -177,9 +230,10 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
       const outFile = path.join(outDir, `${base}.mp4`);
       let lastEmit = 0;
       await renderClip({
-        video: src.video,
-        audio: src.audio,
-        start: h.start,
+        video: clipVideo,
+        audio: clipAudioSrc,
+        start: h.start - videoShift,
+        audioStart: h.start - audioShift,
         duration,
         layout,
         assContent: ass,
@@ -267,7 +321,7 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
  */
 async function resolveClipLayout(
   o: PipelineOptions,
-  h: Highlight,
+  clip: { video: MediaRef; start: number; duration: number },
   src: PreparedSource,
   workDir: string,
   base: string,
@@ -287,10 +341,9 @@ async function resolveClipLayout(
   }
 
   try {
-    const dur = h.end - h.start;
     const frames = await Promise.all(
       [0.2, 0.5, 0.8].map((p, i) =>
-        extractFrame(src.video, h.start + dur * p, path.join(workDir, `${base}_cam${i}.jpg`), 960),
+        extractFrame(clip.video, clip.start + clip.duration * p, path.join(workDir, `${base}_cam${i}.jpg`), 960),
       ),
     );
     const det = await o.analyzer.detectWebcam(frames);
@@ -315,6 +368,7 @@ async function resolveClipLayout(
 async function getClipText(
   o: PipelineOptions,
   h: Highlight,
+  audio: { ref: MediaRef; shift: number },
   src: PreparedSource,
   workDir: string,
   base: string,
@@ -325,8 +379,8 @@ async function getClipText(
   if (o.singlePass && h.captions) return { captions: sanitizeCaptions(h.captions, duration), post: fallback };
   try {
     await status("transcrevendo trecho e escrevendo os posts...");
-    const clipAudio = await extractAudio(src.analysisAudio, path.join(workDir, `${base}.mp3`), {
-      start: h.start,
+    const clipAudio = await extractAudio(audio.ref, path.join(workDir, `${base}.mp3`), {
+      start: h.start - audio.shift,
       duration,
       signal: o.signal,
     });
