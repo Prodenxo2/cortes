@@ -1,5 +1,6 @@
 import { getConfig } from "@/lib/config";
 import { runCommand } from "@/lib/process";
+import { inputArgs, type MediaRef } from "./media";
 
 export interface ProbeResult {
   duration: number;
@@ -40,20 +41,18 @@ export interface AudioExtractOptions {
   /** Duração do trecho em segundos (opcional). */
   duration?: number;
   bitrateKbps?: number;
+  /** Duração esperada da saída, para calcular o progresso (0..1). */
+  expectedDuration?: number;
+  onProgress?: (ratio: number) => void;
 }
 
 /**
- * Extrai áudio mono MP3 leve para envio ao Gemini.
+ * Extrai áudio mono MP3 leve para envio ao Gemini. Aceita arquivo local ou URL remota.
  * Com start/duration usa o MESMO seek de entrada do render, então os offsets batem com o clipe final.
  */
-export async function extractAudio(src: string, out: string, opts: AudioExtractOptions = {}): Promise<string> {
-  const { bins } = getConfig();
-  const args = ["-y", "-hide_banner", "-loglevel", "error"];
-  if (opts.start !== undefined) args.push("-ss", opts.start.toFixed(3));
-  if (opts.duration !== undefined) args.push("-t", opts.duration.toFixed(3));
-  args.push(
-    "-i",
-    src,
+export async function extractAudio(src: MediaRef, out: string, opts: AudioExtractOptions = {}): Promise<string> {
+  const args = [
+    ...inputArgs(src, { start: opts.start, duration: opts.duration }),
     "-vn",
     "-ac",
     "1",
@@ -64,8 +63,8 @@ export async function extractAudio(src: string, out: string, opts: AudioExtractO
     "-b:a",
     `${opts.bitrateKbps ?? 64}k`,
     out,
-  );
-  await runCommand(bins.ffmpeg, args);
+  ];
+  await runFfmpegWithProgress(args, opts.expectedDuration ?? opts.duration ?? 0, { onProgress: opts.onProgress });
   return out;
 }
 
@@ -92,17 +91,14 @@ export async function runFfmpegWithProgress(
 }
 
 /** Captura um frame JPG (thumbnail). */
-export async function extractFrame(src: string, atSeconds: number, out: string, width = 540): Promise<string> {
+export async function extractFrame(src: MediaRef, atSeconds: number, out: string, width = 540): Promise<string> {
   const { bins } = getConfig();
   await runCommand(bins.ffmpeg, [
     "-y",
     "-hide_banner",
     "-loglevel",
     "error",
-    "-ss",
-    atSeconds.toFixed(3),
-    "-i",
-    src,
+    ...inputArgs(src, { start: atSeconds }),
     "-frames:v",
     "1",
     "-vf",

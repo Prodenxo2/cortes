@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { getConfig } from "@/lib/config";
 import { CommandError, runCommand } from "@/lib/process";
+import type { MediaInput } from "./media";
 
 export interface SourceMetadata {
   id: string;
@@ -61,8 +62,8 @@ function friendlyError(err: unknown): unknown {
   const msg = err.message;
   if (/confirm you.?re not a bot|Sign in to confirm/i.test(msg)) {
     return new Error(
-      "BLOQUEIO_YOUTUBE: o YouTube bloqueou o download a partir do servidor (pede login \"não sou um robô\"). " +
-        "O administrador precisa configurar/renovar o cookies.txt (YTDLP_COOKIES_FILE).",
+      "BLOQUEIO_YOUTUBE: o YouTube bloqueou o acesso a partir do nosso servidor. " +
+        "Por enquanto, use links de VOD da Twitch (twitch.tv/videos/...).",
     );
   }
   if (/Private video|members-only|Join this channel/i.test(msg)) {
@@ -96,6 +97,95 @@ export async function fetchMetadata(url: string): Promise<SourceMetadata> {
   };
 }
 
+export interface ResolvedMedia {
+  meta: SourceMetadata;
+  /** Vídeo para o render (pode conter áudio junto, como no HLS da Twitch). */
+  video: MediaInput;
+  /** Áudio separado para o render, quando o site entrega vídeo e áudio em faixas diferentes (DASH). */
+  audio?: MediaInput;
+  /** Fonte leve de áudio para análise/legendas (faixa só de áudio quando existe). */
+  analysisAudio: MediaInput;
+  width: number;
+  height: number;
+  hasAudio: boolean;
+}
+
+type FormatJson = { url?: string; http_headers?: Record<string, string>; vcodec?: string; acodec?: string };
+
+async function dumpJson(url: string, format: string): Promise<Record<string, unknown>> {
+  const { bins } = getConfig();
+  const { stdout } = await runCommand(bins.ytdlp, [
+    ...(await baseArgs()),
+    "-f",
+    format,
+    "--dump-single-json",
+    "--skip-download",
+    url,
+  ]).catch((err) => {
+    throw friendlyError(err);
+  });
+  return JSON.parse(stdout);
+}
+
+function toMetadata(json: Record<string, unknown>): SourceMetadata {
+  return {
+    id: String(json.id ?? ""),
+    title: String(json.title ?? "Sem título"),
+    duration: typeof json.duration === "number" ? json.duration : undefined,
+    isLive: json.is_live === true || json.live_status === "is_live" || json.live_status === "is_upcoming",
+    extractor: String(json.extractor_key ?? json.extractor ?? ""),
+    uploader: (json.uploader ?? json.channel ?? undefined) as string | undefined,
+  };
+}
+
+const has = (codec: string | undefined) => Boolean(codec) && codec !== "none";
+
+/**
+ * Descobre as URLs diretas (sem baixar nada): vídeo até 1080p e uma faixa leve de áudio.
+ * As URLs expiram em algumas horas — chame de novo antes de renderizar se o job demorar.
+ */
+export async function resolveMedia(url: string, opts: { maxHeight?: number } = {}): Promise<ResolvedMedia> {
+  const h = opts.maxHeight ?? 1080;
+  const [renderJson, audioJson] = await Promise.all([
+    dumpJson(url, `bv*[height<=${h}]+ba/b[height<=${h}]/b`),
+    dumpJson(url, "ba/w"),
+  ]);
+
+  const headersOf = (f: FormatJson) => f.http_headers ?? (renderJson.http_headers as Record<string, string>) ?? {};
+  const requested = renderJson.requested_formats as FormatJson[] | undefined;
+
+  let video: MediaInput;
+  let audio: MediaInput | undefined;
+  let hasAudio: boolean;
+  if (requested && requested.length > 1) {
+    const v = requested.find((f) => has(f.vcodec)) ?? requested[0];
+    const a = requested.find((f) => has(f.acodec) && f !== v);
+    video = { url: String(v.url), headers: headersOf(v) };
+    audio = a ? { url: String(a.url), headers: headersOf(a) } : undefined;
+    hasAudio = Boolean(a) || has(v.acodec);
+  } else {
+    const f = renderJson as FormatJson;
+    if (!f.url) throw new Error("yt-dlp não retornou a URL do vídeo.");
+    video = { url: f.url, headers: headersOf(f) };
+    hasAudio = f.acodec === undefined ? true : has(f.acodec);
+  }
+
+  const af = audioJson as FormatJson;
+  const analysisAudio: MediaInput = af.url
+    ? { url: af.url, headers: af.http_headers ?? {} }
+    : (audio ?? video);
+
+  return {
+    meta: toMetadata(renderJson),
+    video,
+    audio,
+    analysisAudio,
+    width: Number(renderJson.width) || 1920,
+    height: Number(renderJson.height) || 1080,
+    hasAudio,
+  };
+}
+
 /**
  * Baixa o vídeo em até 1080p (MP4) para `{outDir}/source.mp4`.
  * Prioriza H.264 + AAC (merge direto em MP4); se não houver, aceita VP9/AV1 — o ffmpeg re-encoda depois mesmo.
@@ -115,6 +205,8 @@ export async function downloadVideo(url: string, outDir: string, opts: DownloadO
   const args = [
     ...(await baseArgs()),
     "--newline",
+    "--concurrent-fragments",
+    "8",
     "-f",
     format,
     "--merge-output-format",

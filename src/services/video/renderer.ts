@@ -3,9 +3,13 @@ import path from "node:path";
 import { getConfig } from "@/lib/config";
 import { runFfmpegWithProgress } from "./ffmpeg";
 import { buildFilterGraph, type LayoutOptions } from "./layouts";
+import { inputArgs, type MediaRef } from "./media";
 
 export interface RenderClipOptions {
-  source: string;
+  /** Vídeo (arquivo local ou URL remota). Se tiver áudio junto e `audio` não vier, o áudio sai daqui. */
+  video: MediaRef;
+  /** Faixa de áudio separada (ex: formatos DASH do YouTube), opcional. */
+  audio?: MediaRef;
   start: number;
   duration: number;
   layout: LayoutOptions;
@@ -35,19 +39,13 @@ export async function renderClip(o: RenderClipOptions): Promise<string> {
     await fs.writeFile(path.join(o.workDir, assName), o.assContent, "utf8");
   }
 
-  const args = [
-    "-ss",
-    o.start.toFixed(3),
-    "-t",
-    o.duration.toFixed(3),
-    "-i",
-    path.resolve(o.source),
-    "-filter_complex",
-    buildFilterGraph(o.layout, assName),
-    "-map",
-    "[vout]",
-  ];
-  if (o.hasAudio) args.push("-map", "0:a:0", "-c:a", "aac", "-b:a", "160k", "-ar", "48000");
+  const seek = { start: o.start, duration: o.duration };
+  const args = [...inputArgs(o.video, seek)];
+  if (o.audio) args.push(...inputArgs(o.audio, seek));
+  args.push("-filter_complex", buildFilterGraph(o.layout, assName), "-map", "[vout]");
+  if (o.hasAudio) {
+    args.push("-map", o.audio ? "1:a:0" : "0:a:0", "-c:a", "aac", "-b:a", "160k", "-ar", "48000");
+  }
   args.push(
     "-c:v",
     "libx264",

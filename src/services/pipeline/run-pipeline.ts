@@ -2,9 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Highlight, PipelineStage, ProgressFn, RenderedClip, WebcamMode } from "@/types/clip";
 import { getConfig } from "@/lib/config";
-import { formatTimestamp } from "@/lib/time";
-import { downloadVideo, fetchMetadata } from "@/services/video/ytdlp";
-import { extractAudio, extractFrame, probe, type ProbeResult } from "@/services/video/ffmpeg";
+import { formatTimestamp, parseRange } from "@/lib/time";
+import { downloadVideo, fetchMetadata, resolveMedia, type ResolvedMedia } from "@/services/video/ytdlp";
+import { extractAudio, extractFrame, probe } from "@/services/video/ffmpeg";
+import type { MediaRef } from "@/services/video/media";
 import {
   autoCamHeightRatio,
   captionAnchor,
@@ -25,7 +26,7 @@ export interface PipelineOptions {
   url?: string;
   /** Arquivo de vídeo já baixado (pula o yt-dlp). */
   localFile?: string;
-  /** Baixa só um trecho, ex: "00:00-10:00". */
+  /** Processa só um trecho, ex: "1:00:00-1:20:00". */
   section?: string;
   layout: LayoutOptions;
   /**
@@ -63,8 +64,8 @@ export interface PipelineResult {
 
 // Faixas de progresso de cada etapa no total 0..100.
 const RANGES: Record<Exclude<PipelineStage, "COMPLETED">, [number, number]> = {
-  DOWNLOADING: [0, 25],
-  ANALYZING: [25, 50],
+  DOWNLOADING: [0, 20],
+  ANALYZING: [20, 50],
   RENDERING: [50, 100],
 };
 
@@ -83,49 +84,31 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
   };
 
   try {
-    // ---------------------------------------------------------------- 1. Download
-    let source: string;
-    let sourceTitle: string;
-    if (o.localFile) {
-      source = path.resolve(o.localFile);
-      sourceTitle = path.basename(source, path.extname(source));
-      await fs.access(source);
-      await emit("DOWNLOADING", 1, `Usando arquivo local ${path.basename(source)}`);
-    } else {
-      await emit("DOWNLOADING", 0, "Lendo metadados...");
-      const meta = await fetchMetadata(o.url!);
-      if (meta.isLive) {
-        throw new Error("Essa live ainda está no ar. Espere ela terminar e virar VOD para processar.");
-      }
-      sourceTitle = meta.title;
-      await emit("DOWNLOADING", 0.02, `Baixando "${meta.title}"...`);
-      let lastEmit = 0;
-      source = await downloadVideo(o.url!, workDir, {
-        section: o.section,
-        signal: o.signal,
-        onProgress: (pct) => {
-          const now = Date.now();
-          if (now - lastEmit < 1000) return;
-          lastEmit = now;
-          void emit("DOWNLOADING", 0.02 + (pct / 100) * 0.98, `Baixando vídeo... ${pct.toFixed(1)}%`);
-        },
-      });
-    }
-
-    const info = await probe(source);
-    if (!info.duration) throw new Error("Não consegui ler a duração do vídeo.");
-    await emit("DOWNLOADING", 1, `Vídeo pronto: ${info.width}x${info.height}, ${formatTimestamp(info.duration)}`);
+    // ---------------------------------------------------------------- 1. Fonte
+    const src = await prepareSource(o, workDir, emit);
+    const sourceTitle = src.title;
 
     // ---------------------------------------------------------------- 2. Curadoria (IA)
-    if (!info.hasAudio) throw new Error("O vídeo não tem faixa de áudio — não há o que analisar.");
-    await emit("ANALYZING", 0, "Extraindo áudio leve (mono 64kbps)...");
-    const audioPath = await extractAudio(source, path.join(workDir, "audio.mp3"));
+    if (!src.hasAudio) throw new Error("O vídeo não tem faixa de áudio — não há o que analisar.");
+    await emit("ANALYZING", 0, src.remote ? "Baixando só o áudio da live..." : "Extraindo áudio leve (mono 64kbps)...");
+    let lastAudioEmit = 0;
+    const audioPath = await extractAudio(src.analysisAudio, path.join(workDir, "audio.mp3"), {
+      start: src.offset,
+      duration: src.hasSection ? src.analysisDuration : undefined,
+      expectedDuration: src.analysisDuration,
+      onProgress: (r) => {
+        const now = Date.now();
+        if (now - lastAudioEmit < 1500) return;
+        lastAudioEmit = now;
+        void emit("ANALYZING", r * 0.3, `Baixando áudio... ${Math.round(r * 100)}%`);
+      },
+    });
 
-    await emit("ANALYZING", 0.1, `Enviando para ${o.analyzer.name}...`);
+    await emit("ANALYZING", 0.3, `Enviando para ${o.analyzer.name}...`);
     const raw = await o.analyzer.findHighlights({
       audioPath,
       sourceTitle,
-      sourceDuration: info.duration,
+      sourceDuration: src.analysisDuration,
       clipCount: o.clipCount,
       minDuration: o.minDuration,
       maxDuration: o.maxDuration,
@@ -133,17 +116,21 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
       includeCaptions: !!o.singlePass,
       focus: parseFocus((o.focus ?? []).join(",")),
       instructions: sanitizeInstructions(o.instructions),
-      onStatus: (msg) => void emit("ANALYZING", 0.4, msg),
+      onStatus: (msg) => void emit("ANALYZING", 0.5, msg),
     });
 
+    // A IA responde em tempos relativos ao áudio analisado; convertemos para tempos do vídeo original.
     const highlights = normalizeHighlights(raw, {
-      sourceDuration: info.duration,
+      sourceDuration: src.analysisDuration,
       minDuration: o.minDuration,
       maxDuration: o.maxDuration,
       clipCount: o.clipCount,
-    });
+    }).map((h) => ({ ...h, start: h.start + src.offset, end: h.end + src.offset }));
     if (highlights.length === 0) throw new Error("A IA não retornou nenhum corte válido para esse vídeo.");
     await emit("ANALYZING", 1, `${highlights.length} cortes encontrados.`);
+
+    // Links diretos expiram em algumas horas: renova antes de renderizar.
+    if (src.refresh) Object.assign(src, await src.refresh());
 
     // ---------------------------------------------------------------- 3. Render
     const clips: RenderedClip[] = [];
@@ -157,9 +144,9 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
       const label = `Corte ${position}/${highlights.length}`;
 
       await emit("RENDERING", at(0.02), `${label}: localizando webcam...`);
-      const { layout, webcamMode } = await resolveClipLayout(o, h, source, info, workDir, base);
+      const { layout, webcamMode } = await resolveClipLayout(o, h, src, workDir, base);
 
-      const captions = await getCaptions(o, h, workDir, source, base, duration, async (msg) =>
+      const captions = await getCaptions(o, h, workDir, src.analysisAudio, base, duration, async (msg) =>
         emit("RENDERING", at(0.05), `${label}: ${msg}`),
       );
 
@@ -176,14 +163,15 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
       const outFile = path.join(outDir, `${base}.mp4`);
       let lastEmit = 0;
       await renderClip({
-        source,
+        video: src.video,
+        audio: src.audio,
         start: h.start,
         duration,
         layout,
         assContent: ass,
         workDir,
         outFile,
-        hasAudio: info.hasAudio,
+        hasAudio: src.hasAudio,
         signal: o.signal,
         onProgress: (r) => {
           const now = Date.now();
@@ -217,7 +205,8 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
       jobId: o.jobId,
       source: o.url ?? o.localFile,
       sourceTitle,
-      sourceDuration: info.duration,
+      sourceDuration: src.totalDuration,
+      section: o.section ?? null,
       analyzer: o.analyzer.name,
       focus: o.focus ?? [],
       instructions: o.instructions ?? "",
@@ -241,7 +230,7 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
     await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
 
     await o.onProgress?.({ stage: "COMPLETED", percent: 100, message: `${clips.length} cortes prontos.` });
-    return { jobId: o.jobId, sourceTitle, sourceDuration: info.duration, outputDir: outDir, manifestPath, clips };
+    return { jobId: o.jobId, sourceTitle, sourceDuration: src.totalDuration, outputDir: outDir, manifestPath, clips };
   } finally {
     if (!o.keepWorkDir) await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -254,8 +243,7 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
 async function resolveClipLayout(
   o: PipelineOptions,
   h: Highlight,
-  source: string,
-  info: ProbeResult,
+  src: PreparedSource,
   workDir: string,
   base: string,
 ): Promise<{ layout: LayoutOptions; webcamMode: WebcamMode }> {
@@ -265,7 +253,7 @@ async function resolveClipLayout(
   const withCam = (rect: CropRect): LayoutOptions => ({
     ...req,
     webcam: rect,
-    camHeightRatio: req.camHeightRatio ?? autoCamHeightRatio(rect, info.width, info.height),
+    camHeightRatio: req.camHeightRatio ?? autoCamHeightRatio(rect, src.width, src.height),
   });
 
   if (req.webcam) return { layout: withCam(req.webcam), webcamMode: "manual" };
@@ -277,7 +265,7 @@ async function resolveClipLayout(
     const dur = h.end - h.start;
     const frames = await Promise.all(
       [0.2, 0.5, 0.8].map((p, i) =>
-        extractFrame(source, h.start + dur * p, path.join(workDir, `${base}_cam${i}.jpg`), 960),
+        extractFrame(src.video, h.start + dur * p, path.join(workDir, `${base}_cam${i}.jpg`), 960),
       ),
     );
     const det = await o.analyzer.detectWebcam(frames);
@@ -302,7 +290,7 @@ async function getCaptions(
   o: PipelineOptions,
   h: Highlight,
   workDir: string,
-  source: string,
+  audioSource: MediaRef,
   base: string,
   duration: number,
   status: (msg: string) => Promise<void>,
@@ -310,7 +298,7 @@ async function getCaptions(
   if (o.singlePass && h.captions) return sanitizeCaptions(h.captions, duration);
   try {
     await status("transcrevendo trecho...");
-    const clipAudio = await extractAudio(source, path.join(workDir, `${base}.mp3`), { start: h.start, duration });
+    const clipAudio = await extractAudio(audioSource, path.join(workDir, `${base}.mp3`), { start: h.start, duration });
     const captions = await o.analyzer.transcribeClip({
       audioPath: clipAudio,
       duration,
@@ -322,4 +310,111 @@ async function getCaptions(
     console.warn(`[pipeline] ${base}: falha ao gerar legendas, seguindo sem legenda. ${(err as Error).message}`);
     return [];
   }
+}
+
+// ============================================================================ Fonte do vídeo
+
+interface PreparedSource {
+  title: string;
+  /** Vídeo para render/frames (arquivo local ou URL direta). */
+  video: MediaRef;
+  /** Áudio separado do vídeo (DASH), se houver. */
+  audio?: MediaRef;
+  /** Fonte leve de áudio para análise e legendas. */
+  analysisAudio: MediaRef;
+  width: number;
+  height: number;
+  hasAudio: boolean;
+  totalDuration: number;
+  /** Início do trecho analisado no vídeo original (segundos). */
+  offset: number;
+  /** Duração do áudio analisado (trecho ou vídeo inteiro). */
+  analysisDuration: number;
+  hasSection: boolean;
+  remote: boolean;
+  refresh?: () => Promise<Pick<PreparedSource, "video" | "audio" | "analysisAudio">>;
+}
+
+type Emit = (stage: "DOWNLOADING", ratio: number, message: string) => Promise<void>;
+
+/**
+ * Modo padrão ("stream"): NÃO baixa a live. Pega as URLs diretas com o yt-dlp e deixa o ffmpeg
+ * buscar só o que precisa — o áudio leve para a IA e, depois, só os trechos dos cortes em 1080p.
+ * DOWNLOAD_MODE=full volta ao comportamento antigo (baixa o vídeo inteiro antes).
+ */
+async function prepareSource(o: PipelineOptions, workDir: string, emit: Emit): Promise<PreparedSource> {
+  const fromFile = async (file: string, title: string): Promise<PreparedSource> => {
+    const info = await probe(file);
+    if (!info.duration) throw new Error("Não consegui ler a duração do vídeo.");
+    return {
+      title,
+      video: file,
+      analysisAudio: file,
+      width: info.width,
+      height: info.height,
+      hasAudio: info.hasAudio,
+      totalDuration: info.duration,
+      offset: 0,
+      analysisDuration: info.duration,
+      hasSection: false,
+      remote: false,
+    };
+  };
+
+  if (o.localFile) {
+    const file = path.resolve(o.localFile);
+    await fs.access(file);
+    await emit("DOWNLOADING", 1, `Usando arquivo local ${path.basename(file)}`);
+    return fromFile(file, path.basename(file, path.extname(file)));
+  }
+
+  await emit("DOWNLOADING", 0, "Lendo informações do vídeo...");
+  const liveError = "Essa live ainda está no ar. Espere ela terminar e virar VOD para processar.";
+
+  if (process.env.DOWNLOAD_MODE === "full") {
+    const meta = await fetchMetadata(o.url!);
+    if (meta.isLive) throw new Error(liveError);
+    let lastEmit = 0;
+    const file = await downloadVideo(o.url!, workDir, {
+      section: o.section,
+      signal: o.signal,
+      onProgress: (pct) => {
+        const now = Date.now();
+        if (now - lastEmit < 1000) return;
+        lastEmit = now;
+        void emit("DOWNLOADING", 0.02 + (pct / 100) * 0.98, `Baixando vídeo... ${pct.toFixed(1)}%`);
+      },
+    });
+    return fromFile(path.resolve(file), meta.title);
+  }
+
+  const media = await resolveMedia(o.url!);
+  if (media.meta.isLive) throw new Error(liveError);
+  const total = media.meta.duration ?? 0;
+  if (!total) throw new Error("Não consegui ler a duração do vídeo.");
+
+  let offset = 0;
+  let analysisDuration = total;
+  if (o.section) {
+    const r = parseRange(o.section);
+    if (r.start >= total) throw new Error(`O trecho começa depois do fim do vídeo (${formatTimestamp(total)}).`);
+    offset = r.start;
+    analysisDuration = Math.min(r.end, total) - r.start;
+  }
+
+  const pick = (m: ResolvedMedia) => ({ video: m.video, audio: m.audio, analysisAudio: m.analysisAudio });
+  await emit("DOWNLOADING", 1, `"${media.meta.title}" — ${formatTimestamp(total)}, ${media.width}x${media.height}`);
+  return {
+    title: media.meta.title,
+    ...pick(media),
+    width: media.width,
+    height: media.height,
+    hasAudio: media.hasAudio,
+    totalDuration: total,
+    offset,
+    analysisDuration,
+    hasSection: Boolean(o.section),
+    remote: true,
+    refresh: async () => pick(await resolveMedia(o.url!)),
+  };
 }
