@@ -10,7 +10,7 @@ const ACTIVE: JobStatus[] = ["DOWNLOADING", "ANALYZING", "RENDERING"];
 export async function claimNextJob(workerId: string): Promise<Project | null> {
   for (let tries = 0; tries < 5; tries++) {
     const next = await prisma.project.findFirst({
-      where: { status: "QUEUED" },
+      where: { status: "QUEUED", OR: [{ runAfter: null }, { runAfter: { lte: new Date() } }] },
       orderBy: { createdAt: "asc" },
       select: { id: true },
     });
@@ -83,6 +83,8 @@ export async function failJob(project: Project, error: string): Promise<"requeue
       lockedBy: null,
       lockedAt: null,
       finishedAt: retry ? null : new Date(),
+      // Espera crescente antes de tentar de novo (2, 4, 6... min) — dá tempo de rede/VOD se ajeitarem.
+      runAfter: retry ? new Date(Date.now() + project.attempts * 2 * 60_000) : null,
     },
   });
   return retry ? "requeued" : "failed";

@@ -11,6 +11,7 @@
     "build": "next build",
     "start": "next start",
     "worker": "tsx src/workers/index.ts",
+    "live": "tsx src/live/index.ts",
     "test:pipeline": "tsx scripts/test-pipeline.ts",
     "preview:layout": "tsx scripts/preview-layout.ts",
     "check:deps": "powershell -NoProfile -ExecutionPolicy Bypass -File ./check-deps.ps1",

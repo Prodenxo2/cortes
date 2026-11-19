@@ -36,6 +36,7 @@ model User {
   updatedAt    DateTime  @updatedAt
   projects     Project[]
   sessions     Session[]
+  channels     Channel[]
 }
 
 /// Sessão de login. O cookie guarda um token aleatório; aqui fica só o SHA-256 dele.
@@ -49,6 +50,55 @@ model Session {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+/// Canal monitorado ao vivo por um usuário. Quando o chat explode, o vigia cria um Project sozinho.
+model Channel {
+  id          String  @id @default(cuid())
+  userId      String
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform    String  @default("twitch") @db.VarChar(16)
+  /// login do canal na Twitch (minúsculo, ex: "gaules")
+  login       String  @db.VarChar(64)
+  displayName String? @db.VarChar(128)
+  avatarUrl   String? @db.VarChar(512)
+  enabled     Boolean @default(true)
+
+  // Preferências dos cortes automáticos
+  layoutPreset    LayoutPreset @default(SPLIT)
+  minClipSeconds  Int          @default(20)
+  maxClipSeconds  Int          @default(60)
+  language        String       @default("pt-BR") @db.VarChar(16)
+  focus           String       @default("") @db.VarChar(100)
+  instructions    String?      @db.VarChar(320)
+  /// 1 = só picos enormes, 2 = equilibrado, 3 = corta mais
+  sensitivity     Int          @default(2)
+  maxClipsPerHour Int          @default(8)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  projects  Project[]
+
+  @@unique([userId, platform, login])
+  @@index([enabled, login])
+}
+
+/// Uma transmissão ao vivo detectada (compartilhada por todos os usuários que monitoram o canal).
+model LiveSession {
+  id           String    @id @default(cuid())
+  platform     String    @default("twitch") @db.VarChar(16)
+  login        String    @db.VarChar(64)
+  streamId     String    @unique @db.VarChar(64)
+  title        String?   @db.VarChar(512)
+  startedAt    DateTime
+  endedAt      DateTime?
+  vodId        String?   @db.VarChar(64)
+  vodCreatedAt DateTime?
+  triggers     Int       @default(0)
+  createdAt    DateTime  @default(now())
+  projects     Project[]
+
+  @@index([login, startedAt])
 }
 
 /// Um Project é ao mesmo tempo o pedido do usuário e o job da fila.
@@ -75,6 +125,16 @@ model Project {
   /// Pedido livre do usuário sobre quais momentos escolher (máx. 300 caracteres)
   instructions   String?      @db.VarChar(320)
 
+  // Cortes automáticos de live (vazio = pedido manual)
+  channelId     String?
+  channel       Channel?     @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  liveSessionId String?
+  liveSession   LiveSession? @relation(fields: [liveSessionId], references: [id], onDelete: SetNull)
+  /// Por que o vigia cortou, ex: "Chat 4.2x acima da média (risadas)"
+  triggerReason String?      @db.VarChar(255)
+  /// Não processar antes deste horário (retry com espera)
+  runAfter      DateTime?
+
   // Metadados da fonte
   sourceTitle    String? @db.VarChar(512)
   /// Canal/streamer de origem (crédito nos posts)
@@ -100,6 +160,7 @@ model Project {
 
   @@index([status, createdAt])
   @@index([userId, createdAt])
+  @@index([channelId, createdAt])
 }
 
 model Clip {

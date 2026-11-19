@@ -28,21 +28,23 @@ if [ -n "${YTDLP_POT_PROVIDER_URL:-}" ]; then
 else
   echo "[start] AVISO: YTDLP_POT_PROVIDER_URL não definida — o YouTube pode bloquear downloads do servidor." >&2
 fi
-echo "[start] iniciando worker e site na porta ${PORT:-3000}..."
+echo "[start] iniciando worker, vigia de lives e site na porta ${PORT:-3000}..."
 
 npm run worker &
 WORKER_PID=$!
+npm run live &
+LIVE_PID=$!
 npx next start -H 0.0.0.0 -p "${PORT:-3000}" &
 WEB_PID=$!
 
 shutdown() {
   echo "[start] encerrando..."
-  kill -TERM "$WORKER_PID" "$WEB_PID" 2>/dev/null || true
+  kill -TERM "$WORKER_PID" "$WEB_PID" "$LIVE_PID" 2>/dev/null || true
 }
 trap shutdown TERM INT
 
 set +e
-wait -n "$WORKER_PID" "$WEB_PID"
+wait -n "$WORKER_PID" "$WEB_PID" "$LIVE_PID"
 STATUS=$?
 echo "[start] um dos processos terminou (código $STATUS)."
 shutdown

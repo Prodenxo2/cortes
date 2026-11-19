@@ -57,6 +57,7 @@ async function processJob(project: Project) {
       jobId: project.id,
       url: project.sourceUrl,
       section: project.section ?? undefined,
+      allowLiveVod: Boolean(project.liveSessionId),
       focus: parseFocus(project.focus),
       instructions: project.instructions ?? undefined,
       layout: layoutFromProject(project),

@@ -45,6 +45,8 @@ export interface PipelineOptions {
   focus?: string[];
   /** Pedido livre do usuário (ex: "a parte do assalto ao banco"). */
   instructions?: string;
+  /** Aceita VOD ainda sendo gravado (cortes automáticos durante a live). */
+  allowLiveVod?: boolean;
   /** Legendas na mesma chamada da curadoria (menos preciso, 1 chamada). */
   singlePass?: boolean;
   /** Mantém tmp/jobs/{jobId} (source.mp4, áudios, .ass) para depuração. */
@@ -416,8 +418,10 @@ async function prepareSource(o: PipelineOptions, workDir: string, emit: Emit): P
   }
 
   const media = await resolveMedia(o.url!);
-  if (media.meta.isLive) throw new Error(liveError);
-  const total = media.meta.duration ?? 0;
+  if (media.meta.isLive && !o.allowLiveVod) throw new Error(liveError);
+  let total = media.meta.duration ?? 0;
+  // VOD em gravação: a duração informada pode estar atrasada; o vigia só cria o corte quando o trecho já existe.
+  if (o.allowLiveVod && o.section) total = Math.max(total, parseRange(o.section).end);
   if (!total) throw new Error("Não consegui ler a duração do vídeo.");
 
   let offset = 0;

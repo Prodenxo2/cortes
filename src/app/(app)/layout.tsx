@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { LogOut, Scissors } from "lucide-react";
+import { Film, LogOut, Radio, Scissors } from "lucide-react";
 import { requireUser } from "@/lib/auth/session";
 import { logoutAction } from "@/app/(auth)/actions";
 
@@ -17,6 +17,15 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             </span>
             <span className="font-bold tracking-tight">Cortes</span>
           </Link>
+
+          <nav className="flex items-center gap-1 text-sm">
+            <Link href="/dashboard" className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-zinc-300 hover:bg-zinc-900">
+              <Film className="h-4 w-4" /> Meus cortes
+            </Link>
+            <Link href="/canais" className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-zinc-300 hover:bg-zinc-900">
+              <Radio className="h-4 w-4" /> Canais
+            </Link>
+          </nav>
 
           <div className="flex items-center gap-4">
             <span className="hidden text-sm text-zinc-400 sm:inline">{user.name}</span>

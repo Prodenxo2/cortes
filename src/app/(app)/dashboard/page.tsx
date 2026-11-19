@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Film } from "lucide-react";
+import { Film, Zap } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/session";
 import { isActive, LAYOUT_LABEL } from "@/lib/status";
@@ -25,6 +25,8 @@ export default async function DashboardPage() {
       statusMessage: true,
       layoutPreset: true,
       createdAt: true,
+      triggerReason: true,
+      channel: { select: { login: true, displayName: true } },
       clips: { select: { thumbnailPath: true }, orderBy: { position: "asc" }, take: 1 },
       _count: { select: { clips: true } },
     },
@@ -64,7 +66,13 @@ export default async function DashboardPage() {
                       <StatusBadge status={p.status} />
                       <span className="text-xs text-zinc-500">{p.createdAt.toLocaleDateString("pt-BR")}</span>
                     </div>
+                    {p.channel && (
+                      <p className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-xs text-brand">
+                        <Zap className="h-3 w-3" /> Auto · {p.channel.displayName ?? p.channel.login}
+                      </p>
+                    )}
                     <p className="line-clamp-2 font-medium group-hover:text-brand">{p.sourceTitle ?? p.sourceUrl}</p>
+                    {p.triggerReason && <p className="text-xs text-zinc-500">{p.triggerReason}</p>}
                     <p className="text-xs text-zinc-500">
                       {LAYOUT_LABEL[p.layoutPreset]}
                       {p._count.clips > 0 && ` · ${p._count.clips} cortes`}

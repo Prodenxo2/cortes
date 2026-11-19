@@ -78,7 +78,13 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         </div>
       </div>
 
-      {project.instructions && (
+      {project.triggerReason && (
+        <p className="rounded-lg border border-brand/30 bg-brand/5 px-3 py-2 text-sm text-zinc-300">
+          ⚡ Corte automático da live — {project.triggerReason}
+        </p>
+      )}
+
+      {project.instructions && !project.triggerReason && (
         <p className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-400">
           Pedido: <span className="text-zinc-200">{project.instructions}</span>
         </p>

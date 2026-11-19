@@ -34,6 +34,8 @@ export function inputArgs(ref: MediaRef, opts: { start?: number; duration?: numb
     // Robustez em rede: tolera quedas momentâneas na leitura HTTP.
     args.push("-rw_timeout", "30000000");
   }
+  // HLS de VOD ainda gravando (playlist EVENT, sem ENDLIST): começa do início para o seek funcionar.
+  if (/\.m3u8(\?|$)/i.test(input.url)) args.push("-live_start_index", "0");
   if (opts.start !== undefined && opts.start > 0) args.push("-ss", opts.start.toFixed(3));
   if (opts.duration !== undefined) args.push("-t", opts.duration.toFixed(3));
   args.push("-i", input.url);

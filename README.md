@@ -101,6 +101,18 @@ Fluxo: `/cadastro` → `/dashboard` (cola o link, escolhe layout, duração e qu
 
 A fila usa o próprio MySQL: o worker pega um job com update otimista (`WHERE status='QUEUED'`), renova o `lockedAt` a cada atualização de progresso, tenta de novo até `maxAttempts` e devolve para a fila os jobs travados há mais de `WORKER_STALE_MINUTES`. Dá para rodar mais de um worker.
 
+## 4. Cortes automáticos durante a live (Twitch)
+
+Em **/canais** o usuário cadastra canais da Twitch. O processo `npm run live` (o "vigia", que já sobe junto no Docker):
+
+1. a cada minuto pergunta à API oficial da Twitch quais canais estão ao vivo;
+2. entra no chat deles como espectador anônimo e mede mensagens por segundo, risadas (KKKK, KEKW...) e hype (POG, CLIPA...);
+3. quando o chat fica bem acima da média **do próprio canal** (sensibilidade configurável, anti-spam por usuário), marca o momento;
+4. espera o VOD em andamento cobrir aquele trecho e cria um Project com a janela (~95s) e uma dica para a IA sobre onde o chat reagiu;
+5. o worker processa como qualquer outro corte (streaming só do trecho, Gemini, webcam, legenda, posts).
+
+Precisa de `TWITCH_CLIENT_ID` e `TWITCH_CLIENT_SECRET` (app grátis em https://dev.twitch.tv/console) e de o streamer estar com **"salvar transmissões"** ligado (é o padrão na Twitch). Limites por canal: cooldown de 2,5 min entre cortes e máximo de cortes por hora.
+
 ## Estrutura
 
 ```
@@ -118,6 +130,7 @@ src/services/video/         ytdlp, ffmpeg, layouts (filter_complex 9:16), subtit
 src/services/gemini/        client (retry), files (upload/ACTIVE/delete), schemas, prompts, analyzer
 src/services/pipeline/      run-pipeline (usado pelo CLI e pelo worker), normalize, mock-analyzer
 src/workers/                fila no MySQL + loop do worker
+src/live/                   vigia de lives: API Twitch, chat anônimo, detector de picos
 ```
 
 ## Notas

@@ -95,7 +95,7 @@ export async function retryProjectAction(id: string): Promise<void> {
   if (project.status !== "FAILED") return;
   await prisma.project.update({
     where: { id },
-    data: { status: "QUEUED", attempts: 0, error: null, progress: 0, statusMessage: "Na fila", finishedAt: null },
+    data: { status: "QUEUED", attempts: 0, error: null, progress: 0, statusMessage: "Na fila", finishedAt: null, runAfter: null },
   });
   revalidatePath(`/projetos/${id}`);
   revalidatePath("/dashboard");
