@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/session";
 import { isActive, LAYOUT_LABEL, PIPELINE_STEPS, type JobStatusName } from "@/lib/status";
 import { focusLabels, parseFocus } from "@/lib/focus";
+import { normalizePostPackage } from "@/lib/post";
 import { StatusBadge } from "@/components/status-badge";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { ClipCard } from "@/components/clip-card";
@@ -150,7 +151,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                   reason: c.reason,
                   videoPath: c.videoPath,
                   thumbnailPath: c.thumbnailPath,
+                  post: normalizePostPackage(c.post),
                 }}
+                credit={{ creator: project.sourceCreator, sourceUrl: project.sourceUrl }}
               />
             ))}
           </div>

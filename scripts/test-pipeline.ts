@@ -147,7 +147,8 @@ async function main() {
   console.log(`\n✔ ${result.clips.length} cortes em ${secs}s — "${result.sourceTitle}"\n`);
   for (const c of result.clips) {
     console.log(`#${c.position}  [${c.viral_score}]  ${formatTimestamp(c.start)} → ${formatTimestamp(c.end)}  ${c.hook_title}`);
-    console.log(`    ${c.hashtags.join(" ")}`);
+    console.log(`    títulos: ${c.post.titles.map((t) => `"${t}"`).join(" | ")}`);
+    console.log(`    tiktok: ${c.post.tiktok.caption} ${c.post.tiktok.hashtags.join(" ")}`);
     const cam = c.layout.webcam ? ` cam=${[c.layout.webcam.x, c.layout.webcam.y, c.layout.webcam.w, c.layout.webcam.h].map((n) => n.toFixed(3)).join(",")}` : "";
     console.log(`    layout: ${c.layout.preset} (webcam: ${c.webcamMode})${cam}`);
     console.log(`    ${c.reason}`);

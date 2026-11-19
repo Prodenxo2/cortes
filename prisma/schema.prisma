@@ -77,6 +77,8 @@ model Project {
 
   // Metadados da fonte
   sourceTitle    String? @db.VarChar(512)
+  /// Canal/streamer de origem (crédito nos posts)
+  sourceCreator  String? @db.VarChar(255)
   sourceDuration Float?
 
   // Estado do job
@@ -115,6 +117,7 @@ model Clip {
   captions   Json   // CaptionBlock[] (offsets relativos ao início do clipe)
   layout     Json?  // LayoutOptions efetivamente usado (com a webcam detectada)
   webcamMode String? @db.VarChar(32) // auto | manual | default | no-webcam | fullscreen-cam | fixed
+  post       Json?  // PostPackage: títulos + textos por rede (src/lib/post.ts)
 
   videoPath     String  @db.VarChar(1024) // URL pública, ex: /outputs/{jobId}/clip_01.mp4
   thumbnailPath String? @db.VarChar(1024)

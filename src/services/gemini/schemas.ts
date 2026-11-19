@@ -22,12 +22,57 @@ export const captionBlockSchema: Schema = {
   propertyOrdering: ["start_offset", "end_offset", "text", "highlight_word"],
 };
 
-export const captionsResponseSchema: Schema = {
+const str = (description: string): Schema => ({ type: Type.STRING, description });
+const strList = (description: string): Schema => ({ type: Type.ARRAY, items: { type: Type.STRING }, description });
+
+/** Pacote de postagem por rede (ver src/lib/post.ts). */
+export const postPackageSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    titles: strList("Exatamente 3 opções de título, ângulos diferentes, máx. 60 caracteres cada"),
+    tiktok: {
+      type: Type.OBJECT,
+      properties: {
+        caption: str("Legenda curta do TikTok (máx. 150 caracteres), com gancho ou pergunta"),
+        hashtags: strList("3 a 5 hashtags com #"),
+      },
+      required: ["caption", "hashtags"],
+      propertyOrdering: ["caption", "hashtags"],
+    },
+    instagram: {
+      type: Type.OBJECT,
+      properties: {
+        caption: str("Legenda do Reels (2 a 4 frases curtas) terminando com chamada para ação"),
+        hashtags: strList("5 a 10 hashtags com #, misturando nicho e gerais"),
+      },
+      required: ["caption", "hashtags"],
+      propertyOrdering: ["caption", "hashtags"],
+    },
+    youtube: {
+      type: Type.OBJECT,
+      properties: {
+        title: str("Título do Short, máx. 80 caracteres, sem #Shorts"),
+        description: str("Descrição de 1 a 3 frases sobre o que acontece no corte"),
+        tags: strList("5 a 10 tags SEM #"),
+      },
+      required: ["title", "description", "tags"],
+      propertyOrdering: ["title", "description", "tags"],
+    },
+    pinned_comment: str("Pergunta curta para comentário fixado que puxe respostas"),
+  },
+  required: ["titles", "tiktok", "instagram", "youtube", "pinned_comment"],
+  propertyOrdering: ["titles", "tiktok", "instagram", "youtube", "pinned_comment"],
+};
+
+/** Resposta do passo 2 (por clipe): legendas sincronizadas + pacote de postagem. */
+export const clipTextResponseSchema: Schema = {
   type: Type.OBJECT,
   properties: {
     captions: { type: Type.ARRAY, items: captionBlockSchema },
+    post: postPackageSchema,
   },
-  required: ["captions"],
+  required: ["captions", "post"],
+  propertyOrdering: ["captions", "post"],
 };
 
 /** Schema dos cortes. Com includeCaptions=true, cada corte já vem com as legendas (modo single-pass). */

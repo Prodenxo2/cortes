@@ -35,6 +35,15 @@ export interface TranscribeClipInput {
   duration: number;
   hookTitle: string;
   language: string;
+  sourceTitle?: string;
+  creator?: string;
+  focus?: string[];
+}
+
+export interface ClipTextResult {
+  captions: CaptionBlock[];
+  /** Pacote de postagem bruto da IA (normalizado depois). */
+  post?: unknown;
 }
 
 /**
@@ -55,7 +64,8 @@ export type WebcamDetection =
 export interface ClipAnalyzer {
   readonly name: string;
   findHighlights(input: FindHighlightsInput): Promise<RawHighlight[]>;
-  transcribeClip(input: TranscribeClipInput): Promise<CaptionBlock[]>;
+  /** Legendas sincronizadas + textos de postagem do clipe. */
+  transcribeClip(input: TranscribeClipInput): Promise<ClipTextResult>;
   /** Opcional: localiza a webcam do streamer em frames JPG do mesmo trecho. */
   detectWebcam?(framePaths: string[]): Promise<WebcamDetection>;
 }

@@ -81,10 +81,15 @@ async function processJob(project: Project) {
         captions: c.captions as unknown as Prisma.InputJsonValue,
         layout: c.layout as unknown as Prisma.InputJsonValue,
         webcamMode: c.webcamMode,
+        post: c.post as unknown as Prisma.InputJsonValue,
         videoPath: c.publicUrl,
         thumbnailPath: c.thumbnailUrl ?? null,
       })),
-      { sourceTitle: result.sourceTitle.slice(0, 512), sourceDuration: result.sourceDuration },
+      {
+        sourceTitle: result.sourceTitle.slice(0, 512),
+        sourceCreator: result.sourceCreator?.slice(0, 255) ?? null,
+        sourceDuration: result.sourceDuration,
+      },
     );
     log(`job ${project.id} concluído: ${result.clips.length} cortes`);
   } catch (err) {

@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { Highlight, PipelineStage, ProgressFn, RenderedClip, WebcamMode } from "@/types/clip";
+import type { CaptionBlock, Highlight, PipelineStage, ProgressFn, RenderedClip, WebcamMode } from "@/types/clip";
 import { getConfig } from "@/lib/config";
 import { formatTimestamp, parseRange } from "@/lib/time";
 import { downloadVideo, fetchMetadata, resolveMedia, type ResolvedMedia } from "@/services/video/ytdlp";
@@ -17,6 +17,7 @@ import {
 import { buildAss, sanitizeCaptions } from "@/services/video/subtitles";
 import { renderClip } from "@/services/video/renderer";
 import { parseFocus, sanitizeInstructions } from "@/lib/focus";
+import { fallbackPostPackage, normalizePostPackage, type PostPackage } from "@/lib/post";
 import { normalizeHighlights } from "./normalize";
 import type { ClipAnalyzer } from "./types";
 
@@ -56,6 +57,8 @@ export interface PipelineOptions {
 export interface PipelineResult {
   jobId: string;
   sourceTitle: string;
+  /** Canal/streamer de origem (para o crédito nos posts). */
+  sourceCreator: string | null;
   sourceDuration: number;
   outputDir: string;
   manifestPath: string;
@@ -146,7 +149,7 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
       await emit("RENDERING", at(0.02), `${label}: localizando webcam...`);
       const { layout, webcamMode } = await resolveClipLayout(o, h, src, workDir, base);
 
-      const captions = await getCaptions(o, h, workDir, src.analysisAudio, base, duration, async (msg) =>
+      const { captions, post } = await getClipText(o, h, src, workDir, base, duration, async (msg) =>
         emit("RENDERING", at(0.05), `${label}: ${msg}`),
       );
 
@@ -191,6 +194,7 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
         layout,
         webcamMode,
         captions,
+        post,
         filePath: outFile,
         publicUrl: `${publicBase}/${base}.mp4`,
         thumbnailPath: thumb,
@@ -205,6 +209,7 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
       jobId: o.jobId,
       source: o.url ?? o.localFile,
       sourceTitle,
+      sourceCreator: src.creator ?? null,
       sourceDuration: src.totalDuration,
       section: o.section ?? null,
       analyzer: o.analyzer.name,
@@ -222,6 +227,7 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
         reason: c.reason,
         layout: c.layout,
         webcam_mode: c.webcamMode,
+        post: c.post,
         video: c.publicUrl,
         thumbnail: c.thumbnailUrl,
         captions: c.captions,
@@ -230,7 +236,15 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
     await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
 
     await o.onProgress?.({ stage: "COMPLETED", percent: 100, message: `${clips.length} cortes prontos.` });
-    return { jobId: o.jobId, sourceTitle, sourceDuration: src.totalDuration, outputDir: outDir, manifestPath, clips };
+    return {
+      jobId: o.jobId,
+      sourceTitle,
+      sourceCreator: src.creator ?? null,
+      sourceDuration: src.totalDuration,
+      outputDir: outDir,
+      manifestPath,
+      clips,
+    };
   } finally {
     if (!o.keepWorkDir) await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -283,32 +297,43 @@ async function resolveClipLayout(
 }
 
 /**
- * Legendas do clipe: no modo single-pass usa o que veio na curadoria; senão transcreve o trecho isolado.
- * Falha de transcrição não derruba o job: o clipe sai sem legenda e o erro vai para o log.
+ * Legendas + pacote de postagem do clipe. No modo single-pass as legendas já vieram na curadoria
+ * e o pacote sai do título/hashtags dela. Falha aqui não derruba o job: o clipe sai sem legenda
+ * e com o pacote mínimo, e o erro vai para o log.
  */
-async function getCaptions(
+async function getClipText(
   o: PipelineOptions,
   h: Highlight,
+  src: PreparedSource,
   workDir: string,
-  audioSource: MediaRef,
   base: string,
   duration: number,
   status: (msg: string) => Promise<void>,
-) {
-  if (o.singlePass && h.captions) return sanitizeCaptions(h.captions, duration);
+): Promise<{ captions: CaptionBlock[]; post: PostPackage }> {
+  const fallback = fallbackPostPackage(h.hook_title, h.hashtags);
+  if (o.singlePass && h.captions) return { captions: sanitizeCaptions(h.captions, duration), post: fallback };
   try {
-    await status("transcrevendo trecho...");
-    const clipAudio = await extractAudio(audioSource, path.join(workDir, `${base}.mp3`), { start: h.start, duration });
-    const captions = await o.analyzer.transcribeClip({
+    await status("transcrevendo trecho e escrevendo os posts...");
+    const clipAudio = await extractAudio(src.analysisAudio, path.join(workDir, `${base}.mp3`), {
+      start: h.start,
+      duration,
+    });
+    const result = await o.analyzer.transcribeClip({
       audioPath: clipAudio,
       duration,
       hookTitle: h.hook_title,
       language: o.language,
+      sourceTitle: src.title,
+      creator: src.creator,
+      focus: parseFocus((o.focus ?? []).join(",")),
     });
-    return sanitizeCaptions(captions, duration);
+    return {
+      captions: sanitizeCaptions(result.captions, duration),
+      post: normalizePostPackage(result.post) ?? fallback,
+    };
   } catch (err) {
-    console.warn(`[pipeline] ${base}: falha ao gerar legendas, seguindo sem legenda. ${(err as Error).message}`);
-    return [];
+    console.warn(`[pipeline] ${base}: falha ao gerar legendas/posts, seguindo sem legenda. ${(err as Error).message}`);
+    return { captions: [], post: fallback };
   }
 }
 
@@ -316,6 +341,8 @@ async function getCaptions(
 
 interface PreparedSource {
   title: string;
+  /** Canal/streamer, quando o site informa. */
+  creator?: string;
   /** Vídeo para render/frames (arquivo local ou URL direta). */
   video: MediaRef;
   /** Áudio separado do vídeo (DASH), se houver. */
@@ -385,7 +412,7 @@ async function prepareSource(o: PipelineOptions, workDir: string, emit: Emit): P
         void emit("DOWNLOADING", 0.02 + (pct / 100) * 0.98, `Baixando vídeo... ${pct.toFixed(1)}%`);
       },
     });
-    return fromFile(path.resolve(file), meta.title);
+    return { ...(await fromFile(path.resolve(file), meta.title)), creator: meta.uploader };
   }
 
   const media = await resolveMedia(o.url!);
@@ -406,6 +433,7 @@ async function prepareSource(o: PipelineOptions, workDir: string, emit: Emit): P
   await emit("DOWNLOADING", 1, `"${media.meta.title}" — ${formatTimestamp(total)}, ${media.width}x${media.height}`);
   return {
     title: media.meta.title,
+    creator: media.meta.uploader,
     ...pick(media),
     width: media.width,
     height: media.height,

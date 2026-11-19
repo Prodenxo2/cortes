@@ -3,6 +3,7 @@ import { createPartFromBase64, createPartFromUri, createUserContent, type Part }
 import type { CaptionBlock } from "@/types/clip";
 import type {
   ClipAnalyzer,
+  ClipTextResult,
   FindHighlightsInput,
   RawHighlight,
   TranscribeClipInput,
@@ -12,7 +13,7 @@ import { getGenAI, getModel, parseJsonResponse, withRetry } from "./client";
 import { deleteFileQuietly, uploadAndWaitActive } from "./files";
 import { captionsPrompt, highlightsPrompt } from "./prompts";
 import { detectWebcamWithGemini } from "./webcam";
-import { captionsResponseSchema, highlightsResponseSchema } from "./schemas";
+import { clipTextResponseSchema, highlightsResponseSchema } from "./schemas";
 
 /** Abaixo disso o áudio vai inline (base64) em vez de passar pela File API. */
 const INLINE_LIMIT_BYTES = 15 * 1024 * 1024;
@@ -67,11 +68,18 @@ export class GeminiAnalyzer implements ClipAnalyzer {
    * Passo 2 (por clipe): transcreve só o trecho do corte. Áudio de 30-60s em 64kbps tem < 1 MB,
    * então vai inline — sem upload/poll/delete e com timestamps bem mais precisos que no áudio inteiro.
    */
-  async transcribeClip(input: TranscribeClipInput): Promise<CaptionBlock[]> {
+  async transcribeClip(input: TranscribeClipInput): Promise<ClipTextResult> {
     const ai = getGenAI();
     const model = getModel();
     const stat = await fs.stat(input.audioPath);
-    const prompt = captionsPrompt({ durationSec: input.duration, hookTitle: input.hookTitle });
+    const prompt = captionsPrompt({
+      durationSec: input.duration,
+      hookTitle: input.hookTitle,
+      language: input.language,
+      sourceTitle: input.sourceTitle,
+      creator: input.creator,
+      focus: input.focus,
+    });
 
     let remoteName: string | undefined;
     let audioPart: Part;
@@ -92,13 +100,13 @@ export class GeminiAnalyzer implements ClipAnalyzer {
             contents: createUserContent([audioPart, prompt]),
             config: {
               responseMimeType: "application/json",
-              responseSchema: captionsResponseSchema,
+              responseSchema: clipTextResponseSchema,
             },
           }),
         "generateContent(captions)",
       );
-      const data = parseJsonResponse<{ captions?: CaptionBlock[] }>(response.text, "captions");
-      return Array.isArray(data.captions) ? data.captions : [];
+      const data = parseJsonResponse<{ captions?: CaptionBlock[]; post?: unknown }>(response.text, "captions");
+      return { captions: Array.isArray(data.captions) ? data.captions : [], post: data.post };
     } finally {
       if (remoteName) await deleteFileQuietly(remoteName);
     }

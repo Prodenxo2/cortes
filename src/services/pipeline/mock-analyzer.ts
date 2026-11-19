@@ -1,6 +1,13 @@
 import type { CaptionBlock } from "@/types/clip";
 import { formatTimestamp } from "@/lib/time";
-import type { ClipAnalyzer, FindHighlightsInput, RawHighlight, TranscribeClipInput, WebcamDetection } from "./types";
+import type {
+  ClipAnalyzer,
+  ClipTextResult,
+  FindHighlightsInput,
+  RawHighlight,
+  TranscribeClipInput,
+  WebcamDetection,
+} from "./types";
 
 /**
  * Analisador falso: espalha cortes pelo vídeo e gera legendas de exemplo.
@@ -36,8 +43,24 @@ export class MockAnalyzer implements ClipAnalyzer {
     });
   }
 
-  async transcribeClip(input: TranscribeClipInput): Promise<CaptionBlock[]> {
-    return fakeCaptions(input.duration);
+  async transcribeClip(input: TranscribeClipInput): Promise<ClipTextResult> {
+    return {
+      captions: fakeCaptions(input.duration),
+      post: {
+        titles: ["Ninguém esperava esse final 😳", "O amigo dele NÃO perdoou kkkk", "Fuga de helicóptero no GTA RP"],
+        tiktok: { caption: "ele achou que ia dar certo 💀", hashtags: ["#gtarp", "#gta6", "#cortes"] },
+        instagram: {
+          caption: "A fuga mais caótica da live.\nMarca aquele amigo que faria isso 👇",
+          hashtags: ["#gtarp", "#gta6", "#gtav", "#cortesdelive", "#gamer"],
+        },
+        youtube: {
+          title: "A fuga mais caótica do GTA RP",
+          description: "Corte de teste gerado no modo mock.",
+          tags: ["gta rp", "gta 6", "cortes"],
+        },
+        pinned_comment: "Qual foi a pior fuga que você já viu?",
+      },
+    };
   }
 }
 

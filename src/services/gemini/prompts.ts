@@ -1,4 +1,4 @@
-import { focusPrompts } from "@/lib/focus";
+import { focusLabels, focusPrompts } from "@/lib/focus";
 import { formatTimestamp } from "@/lib/time";
 
 export interface HighlightsPromptInput {
@@ -93,8 +93,18 @@ function criteriaLines(p: HighlightsPromptInput): string[] {
   return lines;
 }
 
-export function captionsPrompt(p: { durationSec: number; hookTitle: string }): string {
+export interface ClipTextPromptInput {
+  durationSec: number;
+  hookTitle: string;
+  language: string;
+  sourceTitle?: string;
+  creator?: string;
+  focus?: string[];
+}
+
+export function captionsPrompt(p: ClipTextPromptInput): string {
   const dur = p.durationSec.toFixed(2);
+  const focus = focusLabels(p.focus ?? []);
   return [
     `Transcreva LITERALMENTE a fala deste trecho de áudio (duração ${dur}s) para legendas dinâmicas de vídeo vertical.`,
     `Contexto: o trecho foi escolhido como um corte viral com o título "${p.hookTitle}".`,
@@ -108,5 +118,17 @@ export function captionsPrompt(p: { durationSec: number; hookTitle: string }): s
     `- Blocos em ordem, sem sobreposição, todos entre 0.00 e ${dur}.`,
     `- highlight_word: a palavra mais impactante do bloco, copiada exatamente como aparece em text.`,
     `- Se não houver fala, retorne captions como lista vazia.`,
-  ].join("\n");
+    ``,
+    `PACOTE DE POSTAGEM (campo post) — escreva em ${p.language}, baseado no que realmente acontece NESTE trecho:`,
+    p.sourceTitle ? `- Live de origem: "${p.sourceTitle}"${p.creator ? ` (canal ${p.creator})` : ""}.` : ``,
+    focus.length ? `- O criador pediu cortes com foco em: ${focus.join(", ")}. Puxe os textos para esse lado.` : ``,
+    `- titles: 3 títulos com ângulos DIFERENTES (1: curiosidade/suspense, 2: humor/zoeira, 3: direto/descritivo). Máx. 60 caracteres, estilo nativo de rede social, sem mentir sobre o conteúdo e sem entregar o final.`,
+    `- tiktok.caption: 1 frase curta com gancho ou pergunta, pode ter 1-2 emojis. tiktok.hashtags: 3 a 5, as mais específicas do nicho.`,
+    `- instagram.caption: 2 a 4 frases curtas (pode quebrar linha), terminando com chamada para ação (marcar amigo, comentar, salvar). instagram.hashtags: 5 a 10, misturando nicho (jogo, servidor, streamer) e gerais.`,
+    `- youtube.title: até 80 caracteres, SEM "#Shorts". youtube.description: 1 a 3 frases sobre o que acontece. youtube.tags: 5 a 10 palavras-chave SEM #.`,
+    `- pinned_comment: uma pergunta curta que dê vontade de responder, ligada ao momento do corte.`,
+    `- NÃO inclua links nem crédito ao streamer (o sistema adiciona). Não invente nomes de pessoas que não aparecem no áudio.`,
+  ]
+    .filter((l, i, arr) => l !== "" || arr[i - 1] !== "")
+    .join("\n");
 }

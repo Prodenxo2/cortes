@@ -1,4 +1,5 @@
 import type { LayoutOptions } from "@/services/video/layouts";
+import type { PostPackage } from "@/lib/post";
 
 /** Bloco de legenda com tempos relativos ao início do clipe (segundos). */
 export interface CaptionBlock {
@@ -34,6 +35,8 @@ export interface RenderedClip extends Highlight {
   layout: LayoutOptions;
   webcamMode: WebcamMode;
   captions: CaptionBlock[];
+  /** Textos prontos por rede (TikTok, Instagram, YouTube) + opções de título. */
+  post: PostPackage;
   /** Caminho absoluto no disco. */
   filePath: string;
   /** Caminho servido pelo Next a partir de /public. */

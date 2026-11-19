@@ -51,7 +51,7 @@ export async function updateProgress(
 export async function completeJob(
   id: string,
   clips: Omit<Prisma.ClipCreateManyInput, "projectId">[],
-  meta: { sourceTitle: string; sourceDuration: number },
+  meta: { sourceTitle: string; sourceCreator: string | null; sourceDuration: number },
 ): Promise<void> {
   await prisma.$transaction([
     prisma.clip.deleteMany({ where: { projectId: id } }),
