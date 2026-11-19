@@ -15,6 +15,7 @@ import { MockAnalyzer } from "@/services/pipeline/mock-analyzer";
 import type { ClipAnalyzer } from "@/services/pipeline/types";
 import { DEFAULT_WEBCAM, parseRect, type LayoutOptions, type LayoutPreset } from "@/services/video/layouts";
 import { formatTimestamp } from "@/lib/time";
+import { FOCUS_OPTIONS, focusLabels, parseFocus } from "@/lib/focus";
 
 const HELP = `
 Uso: npm run test:pipeline -- <URL> [opções]
@@ -37,6 +38,8 @@ Cortes:
   --clips 5   --min 30   --max 60   --lang pt-BR
 
 IA:
+  --focus risadas,hype   o que procurar: ${FOCUS_OPTIONS.map((f) => f.id).join(", ")} (até 3; vazio = automático)
+  --pedido "texto"       pedido extra, ex: "a parte da perseguição de helicóptero"
   --mock                 cortes e legendas falsos (a detecção de webcam continua real se houver GEMINI_API_KEY)
   --single-pass          legendas na mesma chamada da curadoria
 
@@ -61,6 +64,8 @@ async function main() {
       min: { type: "string", default: "30" },
       max: { type: "string", default: "60" },
       lang: { type: "string", default: "pt-BR" },
+      focus: { type: "string", default: "" },
+      pedido: { type: "string", default: "" },
       mock: { type: "boolean", default: false },
       "single-pass": { type: "boolean", default: false },
       keep: { type: "boolean", default: false },
@@ -107,7 +112,10 @@ async function main() {
   }
 
   const jobId = values["job-id"] ?? `test-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`;
-  console.log(`\n▶ Job ${jobId}  |  analisador: ${analyzer.name}  |  layout: ${preset}\n`);
+  const focusIds = parseFocus(values.focus);
+  console.log(
+    `\n▶ Job ${jobId}  |  analisador: ${analyzer.name}  |  layout: ${preset}  |  foco: ${focusIds.length ? focusLabels(focusIds).join(", ") : "automático"}\n`,
+  );
 
   const t0 = Date.now();
   let lastLine = "";
@@ -123,6 +131,8 @@ async function main() {
     maxDuration,
     clipCount,
     language: values.lang!,
+    focus: parseFocus(values.focus),
+    instructions: values.pedido,
     singlePass: values["single-pass"],
     keepWorkDir: values.keep,
     analyzer,

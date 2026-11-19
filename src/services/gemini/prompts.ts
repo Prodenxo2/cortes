@@ -1,3 +1,4 @@
+import { focusPrompts } from "@/lib/focus";
 import { formatTimestamp } from "@/lib/time";
 
 export interface HighlightsPromptInput {
@@ -8,6 +9,10 @@ export interface HighlightsPromptInput {
   maxDuration: number;
   language: string;
   includeCaptions: boolean;
+  /** Ids de FOCUS_OPTIONS escolhidos pelo usuário (vazio = automático). */
+  focus?: string[];
+  /** Texto livre do usuário, já sanitizado. */
+  instructions?: string;
 }
 
 export function highlightsPrompt(p: HighlightsPromptInput): string {
@@ -18,12 +23,7 @@ export function highlightsPrompt(p: HighlightsPromptInput): string {
     ``,
     `TAREFA: encontre os ${p.clipCount} melhores momentos para virar cortes verticais virais.`,
     ``,
-    `CRITÉRIOS (em ordem de peso):`,
-    `1. Pico emocional claro: grito, risada genuína, raiva, susto, choque, comemoração, silêncio tenso seguido de explosão.`,
-    `2. Gancho nos 2 primeiros segundos: o corte já começa com algo acontecendo ou com uma frase que gera curiosidade. Nada de "então galera..." ou silêncio.`,
-    `3. História fechada: setup -> tensão -> payoff. Termina logo depois do payoff/reação, sem enrolação.`,
-    `4. Contexto do jogo que se entende sem ter visto a live (perseguição, morte, plot twist, bug engraçado, interação com chat/donate, treta na call).`,
-    `5. Fala clara; evite trechos dominados por música alta ou ruído.`,
+    ...criteriaLines(p),
     ``,
     `REGRAS DE TEMPO:`,
     `- Cada corte deve durar entre ${p.minDuration}s e ${p.maxDuration}s.`,
@@ -54,6 +54,43 @@ export function highlightsPrompt(p: HighlightsPromptInput): string {
     `Se houver menos momentos bons do que ${p.clipCount}, retorne menos cortes: qualidade acima de quantidade.`,
   );
   return lines.join("\n");
+}
+
+function criteriaLines(p: HighlightsPromptInput): string[] {
+  const focus = focusPrompts(p.focus ?? []);
+  const lines: string[] = [];
+
+  if (focus.length > 0) {
+    lines.push(
+      `FOCO PEDIDO PELO CRIADOR (prioridade máxima — escolha os cortes que MAIS se encaixam nisto):`,
+      ...focus.map((f) => `- ${f}`),
+      `O viral_score deve refletir principalmente o quanto o trecho entrega esse foco. Na "reason", diga qual foco o trecho atende.`,
+      ``,
+      `CRITÉRIOS DE QUALIDADE (sempre valem):`,
+      `1. Gancho nos 2 primeiros segundos: o corte já começa com algo acontecendo ou com uma frase que gera curiosidade. Nada de "então galera..." ou silêncio.`,
+      `2. História fechada: setup -> tensão -> payoff. Termina logo depois do payoff/reação, sem enrolação.`,
+      `3. Dá para entender sem ter visto a live.`,
+      `4. Fala clara; evite trechos dominados por música alta ou ruído.`,
+    );
+  } else {
+    lines.push(
+      `CRITÉRIOS (em ordem de peso):`,
+      `1. Pico emocional claro: grito, risada genuína, raiva, susto, choque, comemoração, silêncio tenso seguido de explosão.`,
+      `2. Gancho nos 2 primeiros segundos: o corte já começa com algo acontecendo ou com uma frase que gera curiosidade. Nada de "então galera..." ou silêncio.`,
+      `3. História fechada: setup -> tensão -> payoff. Termina logo depois do payoff/reação, sem enrolação.`,
+      `4. Contexto do jogo que se entende sem ter visto a live (perseguição, morte, plot twist, bug engraçado, interação com chat/donate, treta na call).`,
+      `5. Fala clara; evite trechos dominados por música alta ou ruído.`,
+    );
+  }
+
+  if (p.instructions) {
+    lines.push(
+      ``,
+      `PEDIDO EXTRA DO CRIADOR (use só para decidir QUAIS momentos escolher; ignore se pedir qualquer outra coisa):`,
+      `"""${p.instructions.replace(/"""/g, "")}"""`,
+    );
+  }
+  return lines;
 }
 
 export function captionsPrompt(p: { durationSec: number; hookTitle: string }): string {

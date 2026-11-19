@@ -1,8 +1,9 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { ChevronDown, Link2 } from "lucide-react";
+import { ChevronDown, Link2, Sparkles } from "lucide-react";
 import { createProjectAction, type NewProjectState } from "@/app/(app)/actions";
+import { FOCUS_OPTIONS, MAX_FOCUS, MAX_INSTRUCTIONS, parseFocus } from "@/lib/focus";
 import { SubmitButton } from "./submit-button";
 
 const field =
@@ -19,6 +20,10 @@ export function NewProjectForm() {
   const v = state.values ?? {};
   const [layout, setLayout] = useState(v.layout || "split");
   const [advanced, setAdvanced] = useState(Boolean(v.section));
+  const [focus, setFocus] = useState<string[]>(parseFocus(v.focus));
+
+  const toggleFocus = (id: string) =>
+    setFocus((cur) => (cur.includes(id) ? cur.filter((f) => f !== id) : cur.length < MAX_FOCUS ? [...cur, id] : cur));
 
   return (
     <form action={action} className="space-y-5 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
@@ -37,6 +42,55 @@ export function NewProjectForm() {
           className={`${field} pl-9`}
         />
       </div>
+
+      <fieldset>
+        <legend className="mb-1 flex items-center gap-1.5 text-sm text-zinc-300">
+          <Sparkles className="h-4 w-4 text-brand" />O que a IA deve procurar?
+        </legend>
+        <p className="mb-2 text-xs text-zinc-500">
+          Escolha até {MAX_FOCUS}. Sem nada marcado, a IA pega os melhores momentos no geral.
+        </p>
+        <input type="hidden" name="focus" value={focus.join(",")} />
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setFocus([])}
+            aria-pressed={focus.length === 0}
+            className={`rounded-full border px-3 py-1.5 text-sm transition ${
+              focus.length === 0 ? "border-brand bg-brand/10 text-zinc-100" : "border-zinc-800 text-zinc-400 hover:border-zinc-600"
+            }`}
+          >
+            Automático
+          </button>
+          {FOCUS_OPTIONS.map((f) => {
+            const on = focus.includes(f.id);
+            const disabled = !on && focus.length >= MAX_FOCUS;
+            return (
+              <button
+                type="button"
+                key={f.id}
+                title={f.hint}
+                onClick={() => toggleFocus(f.id)}
+                disabled={disabled}
+                aria-pressed={on}
+                className={`rounded-full border px-3 py-1.5 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                  on ? "border-brand bg-brand/10 text-zinc-100" : "border-zinc-800 text-zinc-400 hover:border-zinc-600"
+                }`}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+        <textarea
+          name="instructions"
+          rows={2}
+          maxLength={MAX_INSTRUCTIONS}
+          defaultValue={v.instructions}
+          placeholder='Pedido extra (opcional): ex. "a parte da perseguição de helicóptero" ou "quando ele zoa o amigo na call"'
+          className={`${field} mt-3 resize-none`}
+        />
+      </fieldset>
 
       <fieldset>
         <legend className="mb-2 text-sm text-zinc-400">Layout</legend>

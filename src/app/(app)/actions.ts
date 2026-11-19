@@ -8,6 +8,7 @@ import { getConfig } from "@/lib/config";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/session";
 import { ACTIVE_STATUSES } from "@/lib/status";
+import { MAX_INSTRUCTIONS, parseFocus, sanitizeInstructions } from "@/lib/focus";
 import { normalizeSection, normalizeSourceUrl } from "@/lib/validation";
 
 /** Quantos jobs (na fila ou processando) cada usuário pode ter ao mesmo tempo. */
@@ -27,7 +28,7 @@ export interface NewProjectState {
 export async function createProjectAction(_prev: NewProjectState, form: FormData): Promise<NewProjectState> {
   const user = await requireUser();
   const values = Object.fromEntries(
-    ["url", "layout", "duration", "clips", "language", "section"].map((k) => [k, String(form.get(k) ?? "")]),
+    ["url", "layout", "duration", "clips", "language", "section", "focus", "instructions"].map((k) => [k, String(form.get(k) ?? "")]),
   );
   const fail = (error: string): NewProjectState => ({ error, values });
 
@@ -48,6 +49,12 @@ export async function createProjectAction(_prev: NewProjectState, form: FormData
   const section = normalizeSection(values.section);
   if (section.error) return fail(section.error);
 
+  const focus = parseFocus(values.focus);
+  if (values.instructions.length > MAX_INSTRUCTIONS) {
+    return fail(`O pedido extra pode ter no máximo ${MAX_INSTRUCTIONS} caracteres.`);
+  }
+  const instructions = sanitizeInstructions(values.instructions);
+
   const active = await prisma.project.count({
     where: { userId: user.id, status: { in: ACTIVE_STATUSES } },
   });
@@ -65,6 +72,8 @@ export async function createProjectAction(_prev: NewProjectState, form: FormData
       clipCount: clips,
       language,
       section: section.value,
+      focus: focus.join(","),
+      instructions: instructions || null,
     },
     select: { id: true },
   });

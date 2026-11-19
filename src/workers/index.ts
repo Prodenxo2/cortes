@@ -7,6 +7,7 @@ import "dotenv/config";
 import os from "node:os";
 import type { JobStatus, Prisma, Project } from "@prisma/client";
 import { getConfig } from "@/lib/config";
+import { parseFocus } from "@/lib/focus";
 import { prisma } from "@/lib/prisma";
 import { GeminiAnalyzer } from "@/services/gemini/analyzer";
 import { runPipeline } from "@/services/pipeline/run-pipeline";
@@ -56,6 +57,8 @@ async function processJob(project: Project) {
       jobId: project.id,
       url: project.sourceUrl,
       section: project.section ?? undefined,
+      focus: parseFocus(project.focus),
+      instructions: project.instructions ?? undefined,
       layout: layoutFromProject(project),
       minDuration: project.minClipSeconds,
       maxDuration: project.maxClipSeconds,

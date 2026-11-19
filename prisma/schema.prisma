@@ -70,6 +70,10 @@ model Project {
   language       String       @default("pt-BR") @db.VarChar(16)
   /// Trecho opcional a processar, ex: "1:00:00-1:30:00" (lives longas)
   section        String?      @db.VarChar(32)
+  /// O que a IA deve procurar: ids separados por vírgula (risadas,hype,...). Vazio = automático.
+  focus          String       @default("") @db.VarChar(100)
+  /// Pedido livre do usuário sobre quais momentos escolher (máx. 300 caracteres)
+  instructions   String?      @db.VarChar(320)
 
   // Metadados da fonte
   sourceTitle    String? @db.VarChar(512)

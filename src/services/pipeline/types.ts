@@ -22,6 +22,10 @@ export interface FindHighlightsInput {
   language: string;
   /** Pede legendas junto com os cortes (1 chamada só). */
   includeCaptions: boolean;
+  /** Ids de FOCUS_OPTIONS (risadas, hype...). Vazio = automático. */
+  focus: string[];
+  /** Pedido livre do usuário sobre quais momentos escolher. */
+  instructions: string;
   onStatus?: (msg: string) => void;
 }
 

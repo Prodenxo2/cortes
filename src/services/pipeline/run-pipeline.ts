@@ -15,6 +15,7 @@ import {
 } from "@/services/video/layouts";
 import { buildAss, sanitizeCaptions } from "@/services/video/subtitles";
 import { renderClip } from "@/services/video/renderer";
+import { parseFocus, sanitizeInstructions } from "@/lib/focus";
 import { normalizeHighlights } from "./normalize";
 import type { ClipAnalyzer } from "./types";
 
@@ -38,6 +39,10 @@ export interface PipelineOptions {
   maxDuration: number;
   clipCount: number;
   language: string;
+  /** O que a IA deve procurar (ids de FOCUS_OPTIONS). Vazio = automático. */
+  focus?: string[];
+  /** Pedido livre do usuário (ex: "a parte do assalto ao banco"). */
+  instructions?: string;
   /** Legendas na mesma chamada da curadoria (menos preciso, 1 chamada). */
   singlePass?: boolean;
   /** Mantém tmp/jobs/{jobId} (source.mp4, áudios, .ass) para depuração. */
@@ -126,6 +131,8 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
       maxDuration: o.maxDuration,
       language: o.language,
       includeCaptions: !!o.singlePass,
+      focus: parseFocus((o.focus ?? []).join(",")),
+      instructions: sanitizeInstructions(o.instructions),
       onStatus: (msg) => void emit("ANALYZING", 0.4, msg),
     });
 
@@ -212,6 +219,8 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
       sourceTitle,
       sourceDuration: info.duration,
       analyzer: o.analyzer.name,
+      focus: o.focus ?? [],
+      instructions: o.instructions ?? "",
       layout: o.layout,
       createdAt: new Date().toISOString(),
       clips: clips.map((c) => ({

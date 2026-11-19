@@ -5,6 +5,7 @@ import { ArrowLeft, Check, ExternalLink, RotateCcw, Trash2 } from "lucide-react"
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/session";
 import { isActive, LAYOUT_LABEL, PIPELINE_STEPS, type JobStatusName } from "@/lib/status";
+import { focusLabels, parseFocus } from "@/lib/focus";
 import { StatusBadge } from "@/components/status-badge";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { ClipCard } from "@/components/clip-card";
@@ -45,6 +46,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                 {project.clipCount} cortes de {project.minClipSeconds}-{project.maxClipSeconds}s
               </span>
               {project.section && <span>trecho {project.section}</span>}
+              <span>foco: {parseFocus(project.focus).length ? focusLabels(parseFocus(project.focus)).join(", ") : "automático"}</span>
               <a
                 href={project.sourceUrl}
                 target="_blank"
@@ -74,6 +76,12 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
       </div>
+
+      {project.instructions && (
+        <p className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-400">
+          Pedido: <span className="text-zinc-200">{project.instructions}</span>
+        </p>
+      )}
 
       {(active || failed) && (
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">

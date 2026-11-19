@@ -39,6 +39,8 @@ export class GeminiAnalyzer implements ClipAnalyzer {
         maxDuration: input.maxDuration,
         language: input.language,
         includeCaptions: input.includeCaptions,
+        focus: input.focus,
+        instructions: input.instructions,
       });
 
       const response = await withRetry(
