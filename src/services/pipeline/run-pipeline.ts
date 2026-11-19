@@ -88,9 +88,14 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
     await o.onProgress?.({ stage, percent, message });
   };
 
+  const checkAbort = () => {
+    if (o.signal?.aborted) throw new Error("Cancelado pelo usuário.");
+  };
+
   try {
     // ---------------------------------------------------------------- 1. Fonte
     const src = await prepareSource(o, workDir, emit);
+    checkAbort();
     const sourceTitle = src.title;
 
     // ---------------------------------------------------------------- 2. Curadoria (IA)
@@ -101,6 +106,7 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
       start: src.offset,
       duration: src.hasSection ? src.analysisDuration : undefined,
       expectedDuration: src.analysisDuration,
+      signal: o.signal,
       onProgress: (r) => {
         const now = Date.now();
         if (now - lastAudioEmit < 1500) return;
@@ -109,6 +115,7 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
       },
     });
 
+    checkAbort();
     await emit("ANALYZING", 0.3, `Enviando para ${o.analyzer.name}...`);
     const raw = await o.analyzer.findHighlights({
       audioPath,
@@ -131,6 +138,7 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
       maxDuration: o.maxDuration,
       clipCount: o.clipCount,
     }).map((h) => ({ ...h, start: h.start + src.offset, end: h.end + src.offset }));
+    checkAbort();
     if (highlights.length === 0) throw new Error("A IA não retornou nenhum corte válido para esse vídeo.");
     await emit("ANALYZING", 1, `${highlights.length} cortes encontrados.`);
 
@@ -147,6 +155,7 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
       const duration = h.end - h.start;
       const at = (r: number) => i * perClip + r * perClip;
       const label = `Corte ${position}/${highlights.length}`;
+      checkAbort();
 
       await emit("RENDERING", at(0.02), `${label}: localizando webcam...`);
       const { layout, webcamMode } = await resolveClipLayout(o, h, src, workDir, base);
@@ -319,6 +328,7 @@ async function getClipText(
     const clipAudio = await extractAudio(src.analysisAudio, path.join(workDir, `${base}.mp3`), {
       start: h.start,
       duration,
+      signal: o.signal,
     });
     const result = await o.analyzer.transcribeClip({
       audioPath: clipAudio,
@@ -334,6 +344,7 @@ async function getClipText(
       post: normalizePostPackage(result.post) ?? fallback,
     };
   } catch (err) {
+    if (o.signal?.aborted) throw err;
     console.warn(`[pipeline] ${base}: falha ao gerar legendas/posts, seguindo sem legenda. ${(err as Error).message}`);
     return { captions: [], post: fallback };
   }

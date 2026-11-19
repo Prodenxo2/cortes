@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { ClipCard } from "@/components/clip-card";
 import { deleteProjectAction, retryProjectAction } from "../../actions";
+import { QueueControls } from "@/components/queue-controls";
 
 export const metadata: Metadata = { title: "Projeto — Cortes" };
 
@@ -59,7 +60,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             </div>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <QueueControls id={project.id} status={project.status} prioritized={project.priority >= 10} />
             {failed && (
               <form action={retryProjectAction.bind(null, project.id)}>
                 <button className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 px-3 py-2 text-sm font-medium text-black hover:bg-white">

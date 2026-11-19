@@ -254,6 +254,7 @@ export class LiveWatcher {
         section: `${fmt(start)}-${fmt(end)}`,
         triggerReason: p.trigger.reason.slice(0, 255),
         maxAttempts: 4,
+        priority: 1, // cortes da live são curtos e "quentes": passam na frente de VODs longos
       },
       select: { id: true },
     });

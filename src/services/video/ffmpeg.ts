@@ -44,6 +44,7 @@ export interface AudioExtractOptions {
   /** Duração esperada da saída, para calcular o progresso (0..1). */
   expectedDuration?: number;
   onProgress?: (ratio: number) => void;
+  signal?: AbortSignal;
 }
 
 /**
@@ -64,7 +65,10 @@ export async function extractAudio(src: MediaRef, out: string, opts: AudioExtrac
     `${opts.bitrateKbps ?? 64}k`,
     out,
   ];
-  await runFfmpegWithProgress(args, opts.expectedDuration ?? opts.duration ?? 0, { onProgress: opts.onProgress });
+  await runFfmpegWithProgress(args, opts.expectedDuration ?? opts.duration ?? 0, {
+    onProgress: opts.onProgress,
+    signal: opts.signal,
+  });
   return out;
 }
 

@@ -12,11 +12,22 @@ import { prisma } from "@/lib/prisma";
 import { GeminiAnalyzer } from "@/services/gemini/analyzer";
 import { runPipeline } from "@/services/pipeline/run-pipeline";
 import type { CropRect, LayoutOptions, LayoutPreset } from "@/services/video/layouts";
-import { claimNextJob, completeJob, failJob, requeueOrphansOnBoot, requeueStaleJobs, updateProgress } from "./queue";
+import {
+  claimNextJob,
+  completeJob,
+  failJob,
+  isCancelRequested,
+  pauseJob,
+  requeueOrphansOnBoot,
+  requeueStaleJobs,
+  updateProgress,
+} from "./queue";
 
 const workerId = `${os.hostname()}-${process.pid}`;
 const cfg = getConfig();
 const analyzer = new GeminiAnalyzer();
+/** Quantos projetos processar ao mesmo tempo (render pesa CPU; análise é quase só espera de rede). */
+const CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.WORKER_CONCURRENCY || 2)));
 let stopping = false;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -52,8 +63,17 @@ async function processJob(project: Project) {
     }).catch((err) => log("falha ao gravar progresso:", err.message));
   };
 
+  // "Pausar" num job em andamento: o banco marca cancelRequested e aqui a gente interrompe.
+  const controller = new AbortController();
+  const cancelPoll = setInterval(() => {
+    void isCancelRequested(project.id)
+      .then((yes) => yes && controller.abort())
+      .catch(() => undefined);
+  }, 3000);
+
   try {
     const result = await runPipeline({
+      signal: controller.signal,
       jobId: project.id,
       url: project.sourceUrl,
       section: project.section ?? undefined,
@@ -94,15 +114,23 @@ async function processJob(project: Project) {
     );
     log(`job ${project.id} concluído: ${result.clips.length} cortes`);
   } catch (err) {
+    if (controller.signal.aborted) {
+      await pauseJob(project.id);
+      log(`job ${project.id} pausado pelo usuário`);
+      return;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     const outcome = await failJob(project, msg);
     log(`job ${project.id} ${outcome === "requeued" ? "falhou, voltou para a fila" : "FALHOU"}: ${msg}`);
+  } finally {
+    clearInterval(cancelPoll);
   }
 }
 
 async function main() {
-  log(`iniciado (${workerId}), modelo ${cfg.gemini.model}, polling a cada ${cfg.worker.pollMs}ms`);
+  log(`iniciado (${workerId}), modelo ${cfg.gemini.model}, ${CONCURRENCY} job(s) em paralelo`);
   let lastStaleCheck = 0;
+  const running = new Set<Promise<void>>();
   const orphans = await requeueOrphansOnBoot().catch(() => 0);
   if (orphans) log(`${orphans} job(s) interrompido(s) pelo último deploy voltaram para a fila`);
 
@@ -115,14 +143,21 @@ async function main() {
       await prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => undefined);
     }
 
-    const job = await claimNextJob(workerId).catch((err) => {
-      log("erro ao buscar job:", err.message);
-      return null;
-    });
-    if (job) await processJob(job);
-    else await sleep(cfg.worker.pollMs);
+    if (running.size < CONCURRENCY) {
+      const job = await claimNextJob(workerId).catch((err) => {
+        log("erro ao buscar job:", err.message);
+        return null;
+      });
+      if (job) {
+        const task: Promise<void> = processJob(job).finally(() => running.delete(task));
+        running.add(task);
+        continue; // já tenta pegar o próximo, se houver vaga
+      }
+    }
+    await sleep(running.size >= CONCURRENCY ? 1000 : cfg.worker.pollMs);
   }
 
+  await Promise.allSettled(running);
   await prisma.$disconnect();
   log("encerrado.");
 }

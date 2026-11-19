@@ -11,7 +11,7 @@ export async function claimNextJob(workerId: string): Promise<Project | null> {
   for (let tries = 0; tries < 5; tries++) {
     const next = await prisma.project.findFirst({
       where: { status: "QUEUED", OR: [{ runAfter: null }, { runAfter: { lte: new Date() } }] },
-      orderBy: { createdAt: "asc" },
+      orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
       select: { id: true },
     });
     if (!next) return null;
@@ -61,6 +61,7 @@ export async function completeJob(
       data: {
         ...meta,
         status: "COMPLETED",
+        cancelRequested: false,
         progress: 100,
         statusMessage: `${clips.length} cortes prontos.`,
         lockedBy: null,
@@ -95,6 +96,26 @@ function isPermanentError(msg: string): boolean {
   return /ainda está no ar|BLOQUEIO_YOUTUBE|Vídeo privado|Vídeo indisponível|Unsupported URL|não tem faixa de áudio|GEMINI_API_KEY|404/i.test(
     msg,
   );
+}
+
+/** O usuário pediu para pausar (ou cancelou) um job em andamento. */
+export async function pauseJob(id: string): Promise<void> {
+  await prisma.project.update({
+    where: { id },
+    data: {
+      status: "PAUSED",
+      cancelRequested: false,
+      progress: 0,
+      statusMessage: "Pausado",
+      lockedBy: null,
+      lockedAt: null,
+    },
+  });
+}
+
+export async function isCancelRequested(id: string): Promise<boolean> {
+  const p = await prisma.project.findUnique({ where: { id }, select: { cancelRequested: true } });
+  return Boolean(p?.cancelRequested);
 }
 
 /**

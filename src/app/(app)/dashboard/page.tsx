@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Film, Zap } from "lucide-react";
+import { QueueControls } from "@/components/queue-controls";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/session";
-import { isActive, LAYOUT_LABEL } from "@/lib/status";
+import { isActive, isRunning, LAYOUT_LABEL } from "@/lib/status";
 import { NewProjectForm } from "@/components/new-project-form";
 import { StatusBadge } from "@/components/status-badge";
 import { AutoRefresh } from "@/components/auto-refresh";
@@ -23,6 +24,7 @@ export default async function DashboardPage() {
       status: true,
       progress: true,
       statusMessage: true,
+      priority: true,
       layoutPreset: true,
       createdAt: true,
       triggerReason: true,
@@ -51,7 +53,7 @@ export default async function DashboardPage() {
               <li key={p.id}>
                 <Link
                   href={`/projetos/${p.id}`}
-                  className="group block overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/40 transition hover:border-zinc-600"
+                  className="group block overflow-hidden rounded-t-2xl border border-b-0 border-zinc-800 bg-zinc-900/40 transition hover:border-zinc-600"
                 >
                   <div className="flex aspect-video items-center justify-center bg-zinc-950">
                     {p.clips[0]?.thumbnailPath ? (
@@ -82,8 +84,12 @@ export default async function DashboardPage() {
                         <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${p.progress}%` }} />
                       </div>
                     )}
+                    {isRunning(p.status) && p.statusMessage && (
+                      <p className="truncate text-xs text-zinc-500">{p.statusMessage}</p>
+                    )}
                   </div>
                 </Link>
+                <QueueControls id={p.id} status={p.status} prioritized={p.priority >= 10} compact />
               </li>
             ))}
           </ul>

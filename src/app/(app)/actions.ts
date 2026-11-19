@@ -55,8 +55,9 @@ export async function createProjectAction(_prev: NewProjectState, form: FormData
   }
   const instructions = sanitizeInstructions(values.instructions);
 
+  // Cortes automáticos de live não contam no limite de pedidos manuais.
   const active = await prisma.project.count({
-    where: { userId: user.id, status: { in: ACTIVE_STATUSES } },
+    where: { userId: user.id, channelId: null, status: { in: ACTIVE_STATUSES } },
   });
   if (active >= MAX_ACTIVE_PER_USER) {
     return fail(`Você já tem ${active} processamento(s) em andamento. Espere terminar para enviar outro.`);
@@ -96,6 +97,41 @@ export async function retryProjectAction(id: string): Promise<void> {
   await prisma.project.update({
     where: { id },
     data: { status: "QUEUED", attempts: 0, error: null, progress: 0, statusMessage: "Na fila", finishedAt: null, runAfter: null },
+  });
+  revalidatePath(`/projetos/${id}`);
+  revalidatePath("/dashboard");
+}
+
+/** Pausar: na fila vira PAUSED na hora; em andamento, o worker interrompe em até ~3s. */
+export async function pauseProjectAction(id: string): Promise<void> {
+  const project = await ownProject(id);
+  if (project.status === "QUEUED") {
+    await prisma.project.update({ where: { id }, data: { status: "PAUSED", statusMessage: "Pausado" } });
+  } else if (["DOWNLOADING", "ANALYZING", "RENDERING"].includes(project.status)) {
+    await prisma.project.update({ where: { id }, data: { cancelRequested: true, statusMessage: "Pausando..." } });
+  }
+  revalidatePath(`/projetos/${id}`);
+  revalidatePath("/dashboard");
+}
+
+export async function resumeProjectAction(id: string): Promise<void> {
+  const project = await ownProject(id);
+  if (project.status !== "PAUSED") return;
+  await prisma.project.update({
+    where: { id },
+    data: { status: "QUEUED", cancelRequested: false, attempts: 0, error: null, runAfter: null, statusMessage: "Na fila" },
+  });
+  revalidatePath(`/projetos/${id}`);
+  revalidatePath("/dashboard");
+}
+
+/** Joga o projeto para o começo da fila (e retoma, se estiver pausado). */
+export async function prioritizeProjectAction(id: string): Promise<void> {
+  const project = await ownProject(id);
+  if (!["QUEUED", "PAUSED"].includes(project.status)) return;
+  await prisma.project.update({
+    where: { id },
+    data: { priority: 10, status: "QUEUED", cancelRequested: false, runAfter: null, statusMessage: "Na fila (prioridade)" },
   });
   revalidatePath(`/projetos/${id}`);
   revalidatePath("/dashboard");

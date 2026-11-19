@@ -1,6 +1,13 @@
 /** Rótulos e etapas do job — compartilhado entre server e client (sem imports do Prisma). */
 
-export type JobStatusName = "QUEUED" | "DOWNLOADING" | "ANALYZING" | "RENDERING" | "COMPLETED" | "FAILED";
+export type JobStatusName =
+  | "QUEUED"
+  | "DOWNLOADING"
+  | "ANALYZING"
+  | "RENDERING"
+  | "COMPLETED"
+  | "FAILED"
+  | "PAUSED";
 
 export const STATUS_LABEL: Record<JobStatusName, string> = {
   QUEUED: "Na fila",
@@ -9,6 +16,7 @@ export const STATUS_LABEL: Record<JobStatusName, string> = {
   RENDERING: "Renderizando cortes",
   COMPLETED: "Concluído",
   FAILED: "Falhou",
+  PAUSED: "Pausado",
 };
 
 export const PIPELINE_STEPS: { status: JobStatusName; label: string }[] = [
@@ -19,6 +27,13 @@ export const PIPELINE_STEPS: { status: JobStatusName; label: string }[] = [
 ];
 
 export const ACTIVE_STATUSES: JobStatusName[] = ["QUEUED", "DOWNLOADING", "ANALYZING", "RENDERING"];
+
+/** Processando agora (não inclui fila nem pausado). */
+export const RUNNING_STATUSES: JobStatusName[] = ["DOWNLOADING", "ANALYZING", "RENDERING"];
+
+export function isRunning(status: string): boolean {
+  return (RUNNING_STATUSES as string[]).includes(status);
+}
 
 export function isActive(status: string): boolean {
   return (ACTIVE_STATUSES as string[]).includes(status);
