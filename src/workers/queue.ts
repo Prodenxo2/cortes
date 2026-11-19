@@ -90,7 +90,9 @@ export async function failJob(project: Project, error: string): Promise<"requeue
 
 /** Erros que não adianta repetir (URL inválida, live no ar, vídeo sem áudio...). */
 function isPermanentError(msg: string): boolean {
-  return /ainda está no ar|Unsupported URL|Video unavailable|Private video|não tem faixa de áudio|GEMINI_API_KEY|404/i.test(msg);
+  return /ainda está no ar|BLOQUEIO_YOUTUBE|Vídeo privado|Vídeo indisponível|Unsupported URL|não tem faixa de áudio|GEMINI_API_KEY|404/i.test(
+    msg,
+  );
 }
 
 /** Jobs presos (worker morreu no meio): sem heartbeat há X minutos voltam para a fila. */

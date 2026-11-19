@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { getConfig } from "@/lib/config";
-import { runCommand } from "@/lib/process";
+import { CommandError, runCommand } from "@/lib/process";
 
 export interface SourceMetadata {
   id: string;
@@ -21,22 +22,66 @@ export interface DownloadOptions {
   signal?: AbortSignal;
 }
 
-function baseArgs(): string[] {
+/**
+ * O yt-dlp REESCREVE o arquivo de cookies ao terminar. Montagens de arquivo no Easypanel/Docker
+ * costumam ser somente leitura, então usamos uma cópia em /tmp.
+ */
+async function cookieArgs(): Promise<string[]> {
   const { ytdlpCookiesFromBrowser, ytdlpCookiesFile } = getConfig();
+  if (ytdlpCookiesFile) {
+    try {
+      await fs.access(ytdlpCookiesFile);
+    } catch {
+      console.warn(`[yt-dlp] YTDLP_COOKIES_FILE aponta para ${ytdlpCookiesFile}, mas o arquivo não existe. Seguindo sem cookies.`);
+      return [];
+    }
+    const copy = path.join(os.tmpdir(), `cortes-ytdlp-cookies-${process.pid}.txt`);
+    await fs.copyFile(ytdlpCookiesFile, copy);
+    return ["--cookies", copy];
+  }
+  if (ytdlpCookiesFromBrowser) return ["--cookies-from-browser", ytdlpCookiesFromBrowser];
+  return [];
+}
+
+async function baseArgs(): Promise<string[]> {
   const args = ["--no-playlist", "--no-warnings", "--no-color"];
   // Desde 2025.11 o yt-dlp precisa de um runtime JS externo para o YouTube e só habilita o Deno por padrão.
   // Usamos o próprio Node que está rodando este processo. Sobrescreva com YTDLP_JS_RUNTIMES (ex: "deno").
   const jsRuntime = process.env.YTDLP_JS_RUNTIMES || `node:${process.execPath}`;
-  args.push("--js-runtimes", jsRuntime);
-  if (ytdlpCookiesFile) args.push("--cookies", ytdlpCookiesFile);
-  else if (ytdlpCookiesFromBrowser) args.push("--cookies-from-browser", ytdlpCookiesFromBrowser);
+  args.push("--js-runtimes", jsRuntime, ...(await cookieArgs()));
   return args;
+}
+
+/** Troca os erros mais comuns do yt-dlp por mensagens que o usuário entende. */
+function friendlyError(err: unknown): unknown {
+  if (!(err instanceof CommandError)) return err;
+  const msg = err.message;
+  if (/confirm you.?re not a bot|Sign in to confirm/i.test(msg)) {
+    return new Error(
+      "BLOQUEIO_YOUTUBE: o YouTube bloqueou o download a partir do servidor (pede login \"não sou um robô\"). " +
+        "O administrador precisa configurar/renovar o cookies.txt (YTDLP_COOKIES_FILE).",
+    );
+  }
+  if (/Private video|members-only|Join this channel/i.test(msg)) {
+    return new Error("Vídeo privado ou exclusivo para membros — não dá para baixar.");
+  }
+  if (/Video unavailable|This video is not available/i.test(msg)) {
+    return new Error("Vídeo indisponível (removido, bloqueado na região ou link errado).");
+  }
+  return err;
 }
 
 /** Lê os metadados sem baixar nada. Funciona para YouTube e VODs da Twitch. */
 export async function fetchMetadata(url: string): Promise<SourceMetadata> {
   const { bins } = getConfig();
-  const { stdout } = await runCommand(bins.ytdlp, [...baseArgs(), "--skip-download", "--dump-single-json", url]);
+  const { stdout } = await runCommand(bins.ytdlp, [
+    ...(await baseArgs()),
+    "--skip-download",
+    "--dump-single-json",
+    url,
+  ]).catch((err) => {
+    throw friendlyError(err);
+  });
   const json = JSON.parse(stdout);
   return {
     id: String(json.id ?? ""),
@@ -65,7 +110,7 @@ export async function downloadVideo(url: string, outDir: string, opts: DownloadO
   ].join("/");
 
   const args = [
-    ...baseArgs(),
+    ...(await baseArgs()),
     "--newline",
     "-f",
     format,
@@ -85,6 +130,8 @@ export async function downloadVideo(url: string, outDir: string, opts: DownloadO
       const m = progressRe.exec(line);
       if (m) opts.onProgress?.(Number(m[1]), line);
     },
+  }).catch((err) => {
+    throw friendlyError(err);
   });
 
   const files = await fs.readdir(outDir);
